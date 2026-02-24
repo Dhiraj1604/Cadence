@@ -1,94 +1,74 @@
-//
-//  File.swift
-//  Cadence
-//
-//  Created by Dhiraj on 24/02/26.
-//
-
 import Foundation
 import AVFoundation
 import SwiftUI
 
 @MainActor
 final class AudioManager: ObservableObject {
-    
     private let engine = AVAudioEngine()
     
-    @Published var amplitude: CGFloat = 0
+    // Smooth amplitude (0.0 to 1.0) for fluid UI animation
+    @Published var amplitude: CGFloat = 0.0
     
-    private var smoothedAmplitude: CGFloat = 0
+    // Boolean to detect awkward pauses
+    @Published var isSpeaking: Bool = false
     
-    private var demoTimer: Timer?
+    private var silenceTimer: Date = Date()
     
     func start() {
-        
         let inputNode = engine.inputNode
-        
         let format = inputNode.inputFormat(forBus: 0)
         
-        if format.sampleRate == 0 {
-            
-            startDemoMode()
+        // Prevent crash on simulator where sample rate might be 0
+        guard format.sampleRate > 0 else {
+            print("Audio engine not supported on this simulator/device state.")
             return
         }
         
-        inputNode.installTap(onBus: 0,
-                             bufferSize: 1024,
-                             format: format) { [weak self] buffer, _ in
-            
-            self?.process(buffer)
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
+            self?.processAudioData(buffer: buffer)
         }
         
+        engine.prepare()
         try? engine.start()
     }
     
     func stop() {
-        
         engine.stop()
         engine.inputNode.removeTap(onBus: 0)
-        
-        demoTimer?.invalidate()
+        amplitude = 0.0
+        isSpeaking = false
     }
     
-    private func process(_ buffer: AVAudioPCMBuffer) {
+    private func processAudioData(buffer: AVAudioPCMBuffer) {
+        guard let channelData = buffer.floatChannelData?[0] else { return }
+        let frames = buffer.frameLength
         
-        guard let data = buffer.floatChannelData?[0] else { return }
-        
-        let frameLength = Int(buffer.frameLength)
-        
-        var sum: Float = 0
-        
-        for i in 0..<frameLength {
-            sum += abs(data[i])
+        // Calculate Root Mean Square (RMS) for accurate audio power
+        var sumSquares: Float = 0.0
+        for i in 0..<Int(frames) {
+            let sample = channelData[i]
+            sumSquares += sample * sample
         }
         
-        let avg = sum / Float(frameLength)
+        let rms = sqrt(sumSquares / Float(frames))
         
-        let normalized = min(max(CGFloat(avg) * 10, 0), 1)
-        
-        smoothedAmplitude =
-            smoothedAmplitude * 0.85 +
-            normalized * 0.15
+        // Convert to a smooth 0-1 scale for SwiftUI
+        let normalizedAmplitude = min(max(CGFloat(rms) * 5.0, 0.0), 1.0)
         
         Task { @MainActor in
-            self.amplitude = smoothedAmplitude
-        }
-    }
-    
-    private func startDemoMode() {
-        
-        demoTimer = Timer.scheduledTimer(withTimeInterval: 0.05,
-                                         repeats: true) { [weak self] _ in
+            // Smooth the animation mathematically (80% old value, 20% new value)
+            self.amplitude = self.amplitude * 0.8 + normalizedAmplitude * 0.2
             
-            guard let self else { return }
-            
-            let random = CGFloat.random(in: 0...0.6)
-            
-            self.smoothedAmplitude =
-                self.smoothedAmplitude * 0.9 +
-                random * 0.1
-            
-            self.amplitude = self.smoothedAmplitude
+            // Determine if the user is actively speaking
+            if self.amplitude > 0.1 {
+                self.isSpeaking = true
+                self.silenceTimer = Date()
+            } else {
+                // If silent for more than 1.5 seconds, flag as not speaking
+                if Date().timeIntervalSince(self.silenceTimer) > 1.5 {
+                    self.isSpeaking = false
+                }
+            }
         }
     }
 }

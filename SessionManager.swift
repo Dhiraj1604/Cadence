@@ -15,6 +15,7 @@ enum SessionState {
 @MainActor
 final class SessionManager: ObservableObject {
     
+    
     @Published var state: SessionState = .idle
     
     @Published var duration: TimeInterval = 0
