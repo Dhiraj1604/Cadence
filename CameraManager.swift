@@ -5,41 +5,39 @@
 //  Created by Dhiraj on 24/02/26.
 //
 
-import SwiftUI
 @preconcurrency import ARKit
+import SwiftUI
 
 @MainActor
 class CameraManager: ObservableObject {
     @Published var isMakingEyeContact: Bool = true
     @Published var eyeContactDuration: TimeInterval = 0
-
-    // ARSession must run on its own serial queue — NOT main thread
-    // Running on main thread causes the libdispatch assertion crash
-    private let arQueue = DispatchQueue(label: "cadence.arSession", qos: .userInteractive)
+    
+    private let arQueue = DispatchQueue(label: "cadence.arkit", qos: .userInteractive)
     private var arSession: ARSession?
     private var delegateHelper: ARHelper!
-
+    
     private var isRunning = false
     private var lastUpdate = Date()
-
+    
     init() {
         delegateHelper = ARHelper { [weak self] isLooking in
-            // ARHelper already hops to main thread before calling this
+            // Already dispatched to main thread inside ARHelper
             self?.handleEyeContact(isLooking)
         }
     }
-
+    
     func start() {
         guard ARFaceTrackingConfiguration.isSupported else { return }
-
+        
+        // ARSession must run on its own queue — NOT main thread
         arQueue.async { [weak self] in
             guard let self else { return }
             let session = ARSession()
             session.delegate = self.delegateHelper
-
             let config = ARFaceTrackingConfiguration()
             session.run(config, options: [.resetTracking, .removeExistingAnchors])
-
+            
             DispatchQueue.main.async {
                 self.arSession = session
                 self.isRunning = true
@@ -47,16 +45,14 @@ class CameraManager: ObservableObject {
             }
         }
     }
-
+    
     func stop() {
         isRunning = false
         let session = arSession
-        arQueue.async {
-            session?.pause()
-        }
+        arQueue.async { session?.pause() }
         arSession = nil
     }
-
+    
     private func handleEyeContact(_ isLooking: Bool) {
         self.isMakingEyeContact = isLooking
         if isLooking && isRunning {
@@ -69,14 +65,14 @@ class CameraManager: ObservableObject {
     }
 }
 
-// Bridges ARKit's background thread → main thread safely
+// Bridges ARKit background thread → main thread safely
 class ARHelper: NSObject, ARSessionDelegate, @unchecked Sendable {
     private let onUpdate: (Bool) -> Void
-
+    
     init(onUpdate: @escaping (Bool) -> Void) {
         self.onUpdate = onUpdate
     }
-
+    
     func session(_ session: ARSession, didUpdate anchors: [ARAnchor]) {
         let isLooking = anchors.compactMap { $0 as? ARFaceAnchor }.first?.isTracked ?? false
         DispatchQueue.main.async { [weak self] in

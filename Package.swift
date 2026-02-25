@@ -1,5 +1,4 @@
 // swift-tools-version: 6.0
-
 import PackageDescription
 import AppleProductTypes
 
@@ -12,11 +11,11 @@ let package = Package(
         .iOSApplication(
             name: "Cadence",
             targets: ["AppModule"],
-            bundleIdentifier: "com.dhirajbodake.Cadence", // Your unique identifier
-            teamIdentifier: "PUMDFHHYD3",                 // Your Apple Developer Team ID
+            bundleIdentifier: "com.dhirajbodake.Cadence",
+            teamIdentifier: "PUMDFHHYD3",
             displayVersion: "1.0",
             bundleVersion: "1",
-            appIcon: .placeholder(icon: .mic),            // Fixed icon to prevent the crash
+            appIcon: .placeholder(icon: .mic),
             accentColor: .presetColor(.mint),
             supportedDeviceFamilies: [
                 .pad,
@@ -29,7 +28,6 @@ let package = Package(
                 .portraitUpsideDown(.when(deviceFamilies: [.pad]))
             ],
             capabilities: [
-                // These prevent the "abort with payload" privacy crashes
                 .microphone(purposeString: "Cadence needs microphone access to analyze your speech volume and pacing in real-time."),
                 .speechRecognition(purposeString: "Cadence uses speech recognition locally to track filler words and calculate your words-per-minute."),
                 .camera(purposeString: "Cadence uses the camera entirely on-device to analyze your eye contact.")
@@ -42,5 +40,5 @@ let package = Package(
             path: "."
         )
     ],
-    swiftLanguageModes: [.version("6")]
+    swiftLanguageModes: [.v5]  // ← THIS IS THE ONLY CHANGE
 )
