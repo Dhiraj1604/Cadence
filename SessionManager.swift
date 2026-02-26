@@ -1,9 +1,5 @@
-//
 //  SessionManager.swift
-//  Cadence
-//
-//  Created by Dhiraj on 24/02/26.
-//
+
 import SwiftUI
 
 enum SessionState {
