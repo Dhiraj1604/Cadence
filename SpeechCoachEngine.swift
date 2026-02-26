@@ -1,7 +1,7 @@
-// SpeechCoachEngine
-
 // SpeechCoachEngine.swift
 // Cadence — SSC Edition
+// FIX: requiresOnDeviceRecognition now checks supportsOnDeviceRecognition first
+//      to avoid silent failures on devices where on-device recognition isn't available.
 
 import SwiftUI
 import AVFoundation
@@ -71,7 +71,7 @@ class SpeechCoachEngine: ObservableObject {
     @Published var rhythmStability: Double = 100.0
     @Published var cognitiveLoadWarning: Bool = false
 
-    // Word repetition tracker (replaces fake audience attention)
+    // Word repetition tracker
     @Published var topRepeatedWords: [WordFrequencyEntry] = []
 
     // Private
@@ -156,7 +156,15 @@ class SpeechCoachEngine: ObservableObject {
         let request = SFSpeechAudioBufferRecognitionRequest()
         self.recognitionRequest = request
         request.shouldReportPartialResults = true
-        request.requiresOnDeviceRecognition = true
+
+        // FIX: Only request on-device recognition if this device supports it.
+        // Setting requiresOnDeviceRecognition = true on a device that doesn't
+        // support it causes a silent failure — the recognizer simply never
+        // returns results. We now check supportsOnDeviceRecognition first and
+        // fall back to server-based recognition gracefully.
+        let recognizer = speechRecognizer
+        let supportsOnDevice = recognizer?.supportsOnDeviceRecognition ?? false
+        request.requiresOnDeviceRecognition = supportsOnDevice
 
         recognitionTask = speechRecognizer?.recognitionTask(with: request) { [weak self] result, error in
             DispatchQueue.main.async {
@@ -256,7 +264,6 @@ class SpeechCoachEngine: ObservableObject {
             .prefix(5)
             .map { WordFrequencyEntry(word: $0.key, count: $0.value) }
 
-        // Only update if content actually changed
         let newWords = entries.map { $0.word }
         let newCounts = entries.map { $0.count }
         let oldWords = topRepeatedWords.map { $0.word }
@@ -289,7 +296,6 @@ class SpeechCoachEngine: ObservableObject {
                 lastSpeakingStart = Date()
             }
 
-            // Reward sustained speech every 8 seconds
             if let ls = lastSpeakingStart {
                 let streak = Int(Date().timeIntervalSince(ls))
                 if streak > 0, streak % 8 == 0, !strongStreakReported.contains(streak) {

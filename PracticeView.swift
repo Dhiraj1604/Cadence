@@ -1,7 +1,10 @@
-// Practise View
-
 // PracticeView.swift
 // Cadence — SSC Edition
+// FIXES:
+//   • Deprecated two-arg onChange → new (oldValue, newValue) form for iOS 17+
+//   • Confirmation dialog before ending session (accidental tap protection)
+//   • Haptic feedback via .sensoryFeedback
+//   • Accessibility labels on all metric cards and interactive elements
 
 import SwiftUI
 
@@ -14,6 +17,11 @@ struct PracticeView: View {
     @State private var tipVisible = false
     @State private var lastTipTime: TimeInterval = -30
     @State private var lastFillerCountForTip = 0
+
+    // ── FIX: Confirmation before stop ────────────────────
+    @State private var showStopConfirmation = false
+    // Trigger for haptic on stop confirmation
+    @State private var stopHapticTrigger = false
 
     var body: some View {
         ZStack {
@@ -32,6 +40,7 @@ struct PracticeView: View {
                             Text("Practice Session")
                                 .font(.system(size: 18, weight: .bold))
                                 .foregroundColor(.white)
+                                .accessibilityLabel("Practice Session")
                             Text("● LIVE")
                                 .font(.system(size: 10, weight: .black))
                                 .foregroundColor(.red)
@@ -39,6 +48,7 @@ struct PracticeView: View {
                                 .padding(.vertical, 3)
                                 .background(Color.red.opacity(0.18))
                                 .cornerRadius(6)
+                                .accessibilityLabel("Live recording in progress")
                         }
                         Text(timeString(from: session.duration))
                             .font(.system(size: 38, weight: .bold, design: .monospaced))
@@ -50,6 +60,7 @@ struct PracticeView: View {
                                 )
                             )
                             .contentTransition(.numericText())
+                            .accessibilityLabel("Session duration \(timeString(from: session.duration))")
                     }
                     Spacer()
                     CameraMirrorCard(cameraManager: cameraManager)
@@ -67,6 +78,9 @@ struct PracticeView: View {
                         status: wpmStatus,
                         color: wpmColor
                     )
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("Words per minute: \(coachEngine.wpm == 0 ? "waiting" : "\(coachEngine.wpm)"). Status: \(wpmStatus)")
+
                     LiveMetricCard(
                         icon: "exclamationmark.bubble.fill",
                         label: "Fillers",
@@ -74,6 +88,9 @@ struct PracticeView: View {
                         status: fillerStatus,
                         color: fillerColor
                     )
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("Filler words: \(coachEngine.fillerWordCount). Status: \(fillerStatus)")
+
                     LiveMetricCard(
                         icon: "waveform.path",
                         label: "Rhythm",
@@ -81,6 +98,8 @@ struct PracticeView: View {
                         status: rhythmStatus,
                         color: rhythmColor
                     )
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("Rhythm stability: \(Int(coachEngine.rhythmStability)) percent. Status: \(rhythmStatus)")
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 12)
@@ -92,6 +111,8 @@ struct PracticeView: View {
                 )
                 .padding(.horizontal, 20)
                 .padding(.bottom, 10)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(coachEngine.cognitiveLoadWarning ? "Cognitive overload warning" : "Word watch: \(coachEngine.topRepeatedWords.map { $0.word }.joined(separator: ", "))")
 
                 // ── SPEECH FLOW STRIP ─────────────────────────
                 LiveFlowStrip(
@@ -100,6 +121,7 @@ struct PracticeView: View {
                 )
                 .padding(.horizontal, 20)
                 .padding(.bottom, 10)
+                .accessibilityLabel("Speech flow timeline. \(coachEngine.flowEvents.count) events recorded.")
 
                 // ── TRANSCRIPT ────────────────────────────────
                 ZStack {
@@ -123,6 +145,7 @@ struct PracticeView: View {
                 }
                 .frame(height: 64)
                 .padding(.horizontal, 20)
+                .accessibilityLabel("Live transcript: \(coachEngine.transcribedText.isEmpty ? "no speech yet" : coachEngine.transcribedText)")
 
                 Spacer()
 
@@ -132,6 +155,7 @@ struct PracticeView: View {
                     isSpeaking: coachEngine.isSpeaking,
                     wpm: coachEngine.wpm
                 )
+                .accessibilityHidden(true) // decorative
 
                 Spacer()
 
@@ -144,21 +168,15 @@ struct PracticeView: View {
                             insertion: .move(edge: .bottom).combined(with: .opacity),
                             removal: .opacity
                         ))
+                        .accessibilityElement(children: .combine)
+                        .accessibilityLabel("Coach tip: \(tip.message)")
                 }
 
                 // ── STOP BUTTON ───────────────────────────────
                 Button {
-                    coachEngine.stop()
-                    cameraManager.stop()
-                    session.endSession(
-                        wpm: coachEngine.wpm,
-                        fillers: coachEngine.fillerWordCount,
-                        transcript: coachEngine.transcribedText,
-                        eyeContactDuration: cameraManager.eyeContactDuration,
-                        flowEvents: coachEngine.flowEvents,
-                        rhythmStability: coachEngine.rhythmStability,
-                        attentionScore: 100.0
-                    )
+                    // FIX: show confirmation instead of immediately stopping
+                    showStopConfirmation = true
+                    stopHapticTrigger.toggle()
                 } label: {
                     ZStack {
                         Circle()
@@ -171,6 +189,33 @@ struct PracticeView: View {
                     }
                 }
                 .padding(.bottom, 50)
+                // FIX: haptic on tap
+                .sensoryFeedback(.impact(weight: .heavy), trigger: stopHapticTrigger)
+                .accessibilityLabel("End session")
+                .accessibilityHint("Double tap to stop recording and see your results")
+                // FIX: Confirmation dialog — no more accidental session loss
+                .confirmationDialog(
+                    "End your session?",
+                    isPresented: $showStopConfirmation,
+                    titleVisibility: .visible
+                ) {
+                    Button("End Session", role: .destructive) {
+                        coachEngine.stop()
+                        cameraManager.stop()
+                        session.endSession(
+                            wpm: coachEngine.wpm,
+                            fillers: coachEngine.fillerWordCount,
+                            transcript: coachEngine.transcribedText,
+                            eyeContactDuration: cameraManager.eyeContactDuration,
+                            flowEvents: coachEngine.flowEvents,
+                            rhythmStability: coachEngine.rhythmStability,
+                            attentionScore: 100.0
+                        )
+                    }
+                    Button("Keep Going", role: .cancel) {}
+                } message: {
+                    Text("Your progress will be saved.")
+                }
             }
         }
         .onAppear {
@@ -181,17 +226,18 @@ struct PracticeView: View {
             coachEngine.stop()
             cameraManager.stop()
         }
-        .onChange(of: coachEngine.fillerWordCount) { count in
+        // ── FIX: Use new two-parameter onChange form (iOS 17+) ─────────
+        .onChange(of: coachEngine.fillerWordCount) { _, count in
             checkForLiveTip(fillers: count)
         }
-        .onChange(of: coachEngine.cognitiveLoadWarning) { overloaded in
+        .onChange(of: coachEngine.cognitiveLoadWarning) { _, overloaded in
             if overloaded { showTip(.cognitiveLoad) }
         }
-        .onChange(of: coachEngine.wpm) { speed in
+        .onChange(of: coachEngine.wpm) { _, speed in
             if speed > 175 { checkWPMTip(wpm: speed) }
             if speed > 0 && speed < 100 { checkSlowTip(wpm: speed) }
         }
-        .onChange(of: cameraManager.isMakingEyeContact) { looking in
+        .onChange(of: cameraManager.isMakingEyeContact) { _, looking in
             if !looking { checkEyeContactTip() }
         }
     }

@@ -1,7 +1,7 @@
 // RecordVideoView.swift
 // Cadence — iOS 26 Native
-// SF Pro + SF Symbols throughout
-// FIXED: isVideoMirrored crash fix retained
+// FIX: Added @Environment(\.dismiss) and an xmark.circle.fill toolbar button
+//      so user can always go back. Without this, fullScreenCover had no exit.
 
 import SwiftUI
 @preconcurrency import AVFoundation
@@ -9,11 +9,11 @@ import Speech
 
 // MARK: - Analysis Result
 struct VideoAnalysisResult: Equatable {
-    let transcript: String
-    let wordCount: Int
-    let wpm: Int
+    let transcript:  String
+    let wordCount:   Int
+    let wpm:         Int
     let fillerCount: Int
-    let duration: TimeInterval
+    let duration:    TimeInterval
 
     static let empty = VideoAnalysisResult(
         transcript: "", wordCount: 0, wpm: 0, fillerCount: 0, duration: 0
@@ -46,13 +46,13 @@ struct VideoAnalysisResult: Equatable {
 // MARK: - Video Recorder Engine
 @MainActor
 class VideoRecorder: NSObject, ObservableObject {
-    @Published var isRecording = false
-    @Published var recordedURL: URL? = nil
-    @Published var recordingDuration: TimeInterval = 0
-    @Published var analysisResult: VideoAnalysisResult? = nil
-    @Published var isAnalyzing = false
+    @Published var isRecording       = false
+    @Published var recordedURL:       URL?              = nil
+    @Published var recordingDuration: TimeInterval      = 0
+    @Published var analysisResult:    VideoAnalysisResult? = nil
+    @Published var isAnalyzing        = false
     @Published var permissionsGranted = false
-    @Published var sessionStarted = false
+    @Published var sessionStarted     = false
 
     private var captureSession: AVCaptureSession?
     private(set) var previewLayer: AVCaptureVideoPreviewLayer?
@@ -76,32 +76,29 @@ class VideoRecorder: NSObject, ObservableObject {
         session.sessionPreset = .high
 
         guard
-            let videoDevice = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front),
-            let videoInput = try? AVCaptureDeviceInput(device: videoDevice),
+            let videoDevice = AVCaptureDevice.default(.builtInWideAngleCamera,
+                                                       for: .video, position: .front),
+            let videoInput  = try? AVCaptureDeviceInput(device: videoDevice),
             session.canAddInput(videoInput)
         else { return }
         session.addInput(videoInput)
 
         if let audioDevice = AVCaptureDevice.default(for: .audio),
-           let audioInput = try? AVCaptureDeviceInput(device: audioDevice),
+           let audioInput  = try? AVCaptureDeviceInput(device: audioDevice),
            session.canAddInput(audioInput) {
             session.addInput(audioInput)
         }
 
-        if session.canAddOutput(movieOutput) {
-            session.addOutput(movieOutput)
-        }
+        if session.canAddOutput(movieOutput) { session.addOutput(movieOutput) }
 
         let layer = AVCaptureVideoPreviewLayer(session: session)
         layer.videoGravity = .resizeAspectFill
-
-        // CRASH FIX: disable automaticallyAdjustsVideoMirroring before setting isVideoMirrored
         if let conn = layer.connection, conn.isVideoMirroringSupported {
             conn.automaticallyAdjustsVideoMirroring = false
             conn.isVideoMirrored = true
         }
 
-        previewLayer = layer
+        previewLayer   = layer
         captureSession = session
         DispatchQueue.global(qos: .userInitiated).async { session.startRunning() }
         sessionStarted = true
@@ -111,9 +108,9 @@ class VideoRecorder: NSObject, ObservableObject {
         guard let s = captureSession, s.isRunning else { return }
         try? FileManager.default.removeItem(at: outputURL)
         movieOutput.startRecording(to: outputURL, recordingDelegate: self)
-        isRecording = true
+        isRecording      = true
         recordingDuration = 0
-        analysisResult = nil
+        analysisResult   = nil
         timerTask = Task {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
@@ -129,8 +126,8 @@ class VideoRecorder: NSObject, ObservableObject {
     }
 
     func reset() {
-        recordedURL = nil
-        analysisResult = nil
+        recordedURL      = nil
+        analysisResult   = nil
         recordingDuration = 0
     }
 
@@ -139,13 +136,13 @@ class VideoRecorder: NSObject, ObservableObject {
         Task {
             let result = await runSpeechAnalysis(on: url)
             analysisResult = result
-            isAnalyzing = false
+            isAnalyzing    = false
         }
     }
 
     private func runSpeechAnalysis(on url: URL) async -> VideoAnalysisResult {
         let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
-        let request = SFSpeechURLRecognitionRequest(url: url)
+        let request    = SFSpeechURLRecognitionRequest(url: url)
         request.shouldReportPartialResults = false
 
         return await withCheckedContinuation { continuation in
@@ -157,13 +154,18 @@ class VideoRecorder: NSObject, ObservableObject {
                     return
                 }
                 done = true
-                let text = result.bestTranscription.formattedString
-                let words = text.lowercased().components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
-                let fillers = words.filter { ["um","uh","like","so","actually","basically"].contains($0) }.count
+                let text   = result.bestTranscription.formattedString
+                let words  = text.lowercased()
+                    .components(separatedBy: .whitespacesAndNewlines)
+                    .filter { !$0.isEmpty }
+                let fillers = words.filter {
+                    ["um","uh","like","so","actually","basically"].contains($0)
+                }.count
                 let dur = result.bestTranscription.segments.last?.timestamp ?? 1.0
                 let wpm = dur > 0 ? Int(Double(words.count) / (dur / 60.0)) : 0
                 continuation.resume(returning: VideoAnalysisResult(
-                    transcript: text, wordCount: words.count, wpm: wpm, fillerCount: fillers, duration: dur
+                    transcript: text, wordCount: words.count,
+                    wpm: wpm, fillerCount: fillers, duration: dur
                 ))
             }
         }
@@ -171,10 +173,17 @@ class VideoRecorder: NSObject, ObservableObject {
 }
 
 extension VideoRecorder: AVCaptureFileOutputRecordingDelegate {
-    nonisolated func fileOutput(_ output: AVCaptureFileOutput, didFinishRecordingTo outputFileURL: URL,
-                                from connections: [AVCaptureConnection], error: Error?) {
+    nonisolated func fileOutput(
+        _ output: AVCaptureFileOutput,
+        didFinishRecordingTo outputFileURL: URL,
+        from connections: [AVCaptureConnection],
+        error: Error?
+    ) {
         Task { @MainActor in
-            if error == nil { self.recordedURL = outputFileURL; self.analyzeRecording(url: outputFileURL) }
+            if error == nil {
+                self.recordedURL = outputFileURL
+                self.analyzeRecording(url: outputFileURL)
+            }
         }
     }
 }
@@ -182,18 +191,16 @@ extension VideoRecorder: AVCaptureFileOutputRecordingDelegate {
 // MARK: - Camera Preview
 struct RecordCameraPreview: UIViewRepresentable {
     let recorder: VideoRecorder
-
     func makeUIView(context: Context) -> UIView {
         let view = UIView()
         view.backgroundColor = .black
-        view.clipsToBounds = true
+        view.clipsToBounds   = true
         if let layer = recorder.previewLayer {
             layer.frame = UIScreen.main.bounds
             view.layer.addSublayer(layer)
         }
         return view
     }
-
     func updateUIView(_ uiView: UIView, context: Context) {
         recorder.previewLayer?.frame = uiView.bounds
     }
@@ -202,7 +209,10 @@ struct RecordCameraPreview: UIViewRepresentable {
 // MARK: - Main View
 struct RecordVideoView: View {
     @StateObject private var recorder = VideoRecorder()
-    @State private var showAnalysis = false
+    @State private var showAnalysis   = false
+
+    // FIX: dismiss environment — lets the X button close the fullScreenCover
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
@@ -210,11 +220,10 @@ struct RecordVideoView: View {
                 Color.black.ignoresSafeArea()
 
                 if !recorder.permissionsGranted {
-                    // Permission state
                     ContentUnavailableView {
                         Label("Camera Access Needed", systemImage: "video.slash.fill")
                     } description: {
-                        Text("Cadence needs camera and microphone access to record your practice sessions.")
+                        Text("Cadence needs camera and microphone access to record practice sessions.")
                     } actions: {
                         Button("Grant Access") {
                             Task { await recorder.requestPermissions() }
@@ -224,14 +233,16 @@ struct RecordVideoView: View {
                     }
 
                 } else if showAnalysis, let result = recorder.analysisResult {
-                    VideoAnalysisView(result: result, duration: recorder.recordingDuration) {
+                    VideoAnalysisView(
+                        result:    result,
+                        duration:  recorder.recordingDuration
+                    ) {
                         showAnalysis = false
                         recorder.reset()
                     }
                     .transition(.move(edge: .bottom).combined(with: .opacity))
 
                 } else {
-                    // Camera view
                     ZStack {
                         if recorder.sessionStarted {
                             RecordCameraPreview(recorder: recorder)
@@ -240,23 +251,26 @@ struct RecordVideoView: View {
 
                         // Gradient overlays
                         VStack {
-                            LinearGradient(colors: [.black.opacity(0.6), .clear], startPoint: .top, endPoint: .bottom)
-                                .frame(height: 160)
+                            LinearGradient(
+                                colors: [.black.opacity(0.55), .clear],
+                                startPoint: .top, endPoint: .bottom
+                            )
+                            .frame(height: 160)
                             Spacer()
-                            LinearGradient(colors: [.clear, .black.opacity(0.8)], startPoint: .top, endPoint: .bottom)
-                                .frame(height: 240)
+                            LinearGradient(
+                                colors: [.clear, .black.opacity(0.75)],
+                                startPoint: .top, endPoint: .bottom
+                            )
+                            .frame(height: 240)
                         }
                         .ignoresSafeArea()
 
                         VStack {
                             Spacer()
 
-                            // Analyzing indicator
                             if recorder.isAnalyzing {
                                 VStack(spacing: 12) {
-                                    ProgressView()
-                                        .tint(.mint)
-                                        .scaleEffect(1.3)
+                                    ProgressView().tint(.mint).scaleEffect(1.3)
                                     Text("Analyzing speech…")
                                         .font(.system(size: 14, weight: .medium))
                                         .foregroundStyle(.secondary)
@@ -266,12 +280,12 @@ struct RecordVideoView: View {
                                 .padding(.bottom, 20)
                             }
 
-                            // Record button + timer
                             VStack(spacing: 16) {
                                 if recorder.isRecording {
-                                    // Timer badge
-                                    Label(timeString(recorder.recordingDuration), systemImage: "circle.fill")
-                                        .font(.system(size: 14, weight: .semibold, design: .monospaced))
+                                    Label(timeString(recorder.recordingDuration),
+                                          systemImage: "circle.fill")
+                                        .font(.system(size: 14, weight: .semibold,
+                                                      design: .monospaced))
                                         .foregroundStyle(.white)
                                         .symbolRenderingMode(.multicolor)
                                         .padding(.horizontal, 14)
@@ -279,9 +293,9 @@ struct RecordVideoView: View {
                                         .background(.regularMaterial, in: Capsule())
                                 }
 
-                                // Record button — pure native
                                 Button {
-                                    withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+                                    withAnimation(.spring(response: 0.35,
+                                                         dampingFraction: 0.7)) {
                                         if recorder.isRecording { recorder.stopRecording() }
                                         else { recorder.startRecording() }
                                     }
@@ -290,7 +304,6 @@ struct RecordVideoView: View {
                                         Circle()
                                             .strokeBorder(.white.opacity(0.4), lineWidth: 3)
                                             .frame(width: 78, height: 78)
-
                                         if recorder.isRecording {
                                             RoundedRectangle(cornerRadius: 8)
                                                 .fill(.red)
@@ -303,9 +316,12 @@ struct RecordVideoView: View {
                                     }
                                 }
                                 .buttonStyle(.plain)
+                                .accessibilityLabel(
+                                    recorder.isRecording ? "Stop recording" : "Start recording"
+                                )
 
                                 Text(recorder.isRecording ? "Tap to stop" : "Tap to record")
-                                    .font(.system(size: 13, weight: .regular))
+                                    .font(.system(size: 13))
                                     .foregroundStyle(.secondary)
                             }
                             .padding(.bottom, 48)
@@ -316,12 +332,31 @@ struct RecordVideoView: View {
             .navigationTitle("Record & Review")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbar {
+                // FIX: Close button — top left, always visible
+                // This was completely missing, leaving users trapped in fullScreenCover
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 22))
+                            .symbolRenderingMode(.hierarchical)
+                            .foregroundStyle(.white.opacity(0.7))
+                    }
+                    .accessibilityLabel("Close Record and Review")
+                }
+            }
             .onChange(of: recorder.analysisResult) { _, result in
-                if result != nil { withAnimation(.spring()) { showAnalysis = true } }
+                if result != nil {
+                    withAnimation(.spring()) { showAnalysis = true }
+                }
             }
         }
         .task {
-            if !recorder.permissionsGranted { await recorder.requestPermissions() }
+            if !recorder.permissionsGranted {
+                await recorder.requestPermissions()
+            }
         }
         .animation(.easeInOut(duration: 0.3), value: showAnalysis)
     }
@@ -331,47 +366,43 @@ struct RecordVideoView: View {
     }
 }
 
-// MARK: - Video Analysis Results
+// MARK: - Analysis Results
 struct VideoAnalysisView: View {
-    let result: VideoAnalysisResult
-    let duration: TimeInterval
+    let result:    VideoAnalysisResult
+    let duration:  TimeInterval
     let onDismiss: () -> Void
 
     var body: some View {
         NavigationStack {
             List {
-                // Metrics section
                 Section {
                     AnalysisMetricRow(
                         symbol: "speedometer",
-                        label: "Pacing",
-                        value: result.wpm == 0 ? "—" : "\(result.wpm) WPM",
-                        badge: result.wpmBadge,
-                        color: (result.wpm >= 120 && result.wpm <= 160) ? .mint : .orange
+                        label:  "Pacing",
+                        value:  result.wpm == 0 ? "—" : "\(result.wpm) WPM",
+                        badge:  result.wpmBadge,
+                        color:  (result.wpm >= 120 && result.wpm <= 160) ? .mint : .orange
                     )
                     AnalysisMetricRow(
                         symbol: "exclamationmark.bubble.fill",
-                        label: "Filler Words",
-                        value: "\(result.fillerCount)",
-                        badge: result.fillerBadge,
-                        color: result.fillerCount <= 3 ? .mint : .orange
+                        label:  "Filler Words",
+                        value:  "\(result.fillerCount)",
+                        badge:  result.fillerBadge,
+                        color:  result.fillerCount <= 3 ? .mint : .orange
                     )
                     AnalysisMetricRow(
                         symbol: "clock.fill",
-                        label: "Duration",
-                        value: String(format: "%.0f sec", duration),
-                        badge: "\(result.wordCount) words",
-                        color: .blue
+                        label:  "Duration",
+                        value:  String(format: "%.0f sec", duration),
+                        badge:  "\(result.wordCount) words",
+                        color:  .blue
                     )
-                } header: {
-                    Text("Results")
-                }
+                } header: { Text("Results") }
 
-                // Transcript
                 if !result.transcript.isEmpty {
                     Section("Transcript") {
                         Text(result.transcript)
-                            .font(.system(size: 14, weight: .regular))
+                            .font(.system(size: 14))
                             .foregroundStyle(.primary)
                             .lineSpacing(4)
                     }
@@ -382,8 +413,15 @@ struct VideoAnalysisView: View {
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done", action: onDismiss)
-                        .fontWeight(.semibold)
+                    Button {
+                        onDismiss()
+                    } label: {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 22))
+                            .symbolRenderingMode(.hierarchical)
+                            .foregroundStyle(.mint)
+                    }
+                    .accessibilityLabel("Done")
                 }
             }
         }
@@ -392,10 +430,10 @@ struct VideoAnalysisView: View {
 
 struct AnalysisMetricRow: View {
     let symbol: String
-    let label: String
-    let value: String
-    let badge: String
-    let color: Color
+    let label:  String
+    let value:  String
+    let badge:  String
+    let color:  Color
 
     var body: some View {
         HStack {
@@ -403,18 +441,17 @@ struct AnalysisMetricRow: View {
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(color)
                 .font(.system(size: 15, weight: .medium))
-
             Spacer()
-
             VStack(alignment: .trailing, spacing: 2) {
                 Text(value)
                     .font(.system(size: 15, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.primary)
                 Text(badge)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(color)
             }
         }
         .padding(.vertical, 4)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(label): \(value). \(badge)")
     }
 }

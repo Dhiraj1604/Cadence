@@ -1,16 +1,18 @@
 // SummaryView.swift
 // Cadence — iOS 26 Native
-// SF Pro + SF Symbols throughout, NavigationStack, List styling like Health app
+// Navigation: checkmark.circle toolbar button (top-right) returns to home
+// "Practice Again" button at bottom also returns to home
+// Both call session.resetSession() → transitions to .idle
 
 import SwiftUI
 
 struct SummaryView: View {
     @EnvironmentObject var session: SessionManager
-    @State private var animatedWPM = 0
+    @State private var animatedWPM     = 0
     @State private var animatedFillers = 0
-    @State private var animatedEye = 0
-    @State private var animatedRhythm = 0.0
-    @State private var animatedScore = 0.0
+    @State private var animatedEye     = 0
+    @State private var animatedRhythm  = 0.0
+    @State private var animatedScore   = 0.0
 
     private var hasRealSpeech: Bool {
         session.finalWPM > 0 && session.duration >= 8
@@ -20,7 +22,8 @@ struct SummaryView: View {
         guard hasRealSpeech else { return 0 }
         var score = 50
         if session.finalWPM >= 120 && session.finalWPM <= 160 { score += 20 }
-        else if (session.finalWPM >= 100 && session.finalWPM < 120) || (session.finalWPM > 160 && session.finalWPM <= 180) { score += 10 }
+        else if (session.finalWPM >= 100 && session.finalWPM < 120)
+             || (session.finalWPM > 160 && session.finalWPM <= 180) { score += 10 }
         if session.finalFillers == 0 { score += 15 }
         else if session.finalFillers <= 3 { score += 10 }
         else if session.finalFillers <= 7 { score += 4 }
@@ -37,49 +40,50 @@ struct SummaryView: View {
     }
 
     private var coachInsight: (symbol: String, color: Color, title: String, body: String) {
-        let breaks = session.finalFlowEvents.filter { if case .flowBreak = $0.type { return true }; return false }.count
+        let breaks = session.finalFlowEvents.filter {
+            if case .flowBreak = $0.type { return true }; return false
+        }.count
         if !hasRealSpeech {
             return ("mic.slash.fill", .secondary, "No Speech Detected",
-                    "We couldn't measure your session. Speak clearly into the device and make sure microphone permission is granted.")
+                    "Speak clearly into the device and ensure microphone permission is granted.")
         }
         if breaks >= 3 {
             return ("brain.head.profile", .red, "High Cognitive Load",
-                    "You lost flow \(breaks) times — your brain was searching for words. Pause silently instead of filling. Silence sounds confident.")
+                    "You lost flow \(breaks) times. Use a silent pause instead of filler — it sounds more confident.")
         }
         if session.finalFillers > 8 {
             return ("exclamationmark.bubble.fill", .orange, "Filler Word Habit",
-                    "You used \(session.finalFillers) filler words. Replace each one with a deliberate 1-second pause — it sounds 10× more confident.")
+                    "\(session.finalFillers) fillers detected. Replace each one with a deliberate 1-second pause.")
         }
         if session.finalWPM > 175 {
             return ("hare.fill", .yellow, "Speaking Too Fast",
-                    "At \(session.finalWPM) WPM your audience struggles to keep up. Aim for 130–155 WPM and slow down on key points.")
+                    "At \(session.finalWPM) WPM your audience struggles. Aim for 130–155 WPM.")
         }
         if session.finalWPM < 100 && session.finalWPM > 0 {
             return ("tortoise.fill", .yellow, "Pace Too Slow",
-                    "At \(session.finalWPM) WPM you risk losing the room. Target 130–150 WPM for natural, engaging delivery.")
+                    "At \(session.finalWPM) WPM you risk losing the room. Target 130–150 WPM.")
         }
         if overallScore >= 80 {
             return ("star.fill", .mint, "Outstanding Session",
-                    "Strong pacing, minimal fillers, great eye contact. You're building real speaking confidence — keep this up.")
+                    "Strong pacing, minimal fillers, great eye contact. You're building real confidence.")
         }
         return ("chart.line.uptrend.xyaxis", .cyan, "Good Progress",
-                "Rhythm stability at \(Int(session.finalRhythmStability))%. Every session builds the muscle. You're improving.")
+                "Rhythm at \(Int(session.finalRhythmStability))%. Every session builds the muscle.")
     }
 
     var body: some View {
         NavigationStack {
             List {
 
-                // ── SCORE RING ────────────────────────────────
+                // ── SCORE RING ────────────────────────────
                 Section {
                     HStack {
                         Spacer()
-                        VStack(spacing: 16) {
+                        VStack(spacing: 14) {
                             ZStack {
                                 Circle()
                                     .stroke(Color(uiColor: .systemFill), lineWidth: 12)
                                     .frame(width: 150, height: 150)
-
                                 Circle()
                                     .trim(from: 0, to: CGFloat(animatedScore / 100))
                                     .stroke(
@@ -88,22 +92,25 @@ struct SummaryView: View {
                                     )
                                     .frame(width: 150, height: 150)
                                     .rotationEffect(.degrees(-90))
-                                    .animation(.spring(response: 1.5, dampingFraction: 0.75).delay(0.3), value: animatedScore)
-
+                                    .animation(
+                                        .spring(response: 1.5, dampingFraction: 0.75).delay(0.3),
+                                        value: animatedScore
+                                    )
                                 VStack(spacing: 4) {
                                     Text("\(Int(animatedScore))")
                                         .font(.system(size: 44, weight: .bold, design: .rounded))
                                         .foregroundStyle(scoreColor)
                                         .contentTransition(.numericText())
                                     Text("Score")
-                                        .font(.system(size: 13, weight: .regular))
+                                        .font(.system(size: 13))
                                         .foregroundStyle(.secondary)
                                 }
                             }
+                            .accessibilityElement(children: .combine)
+                            .accessibilityLabel("Session score \(Int(animatedScore)) out of 100")
 
-                            // Duration subtitle
                             Text(subtitleText)
-                                .font(.system(size: 14, weight: .regular))
+                                .font(.system(size: 14))
                                 .foregroundStyle(.secondary)
                                 .multilineTextAlignment(.center)
                         }
@@ -112,72 +119,58 @@ struct SummaryView: View {
                     .padding(.vertical, 20)
                 }
 
-                // ── COACH INSIGHT ─────────────────────────────
+                // ── COACH INSIGHT ─────────────────────────
                 Section {
                     HStack(alignment: .top, spacing: 14) {
                         ZStack {
                             Circle()
-                                .fill(coachInsight.color.opacity(0.15))
-                                .frame(width: 46, height: 46)
+                                .fill(coachInsight.color.opacity(0.14))
+                                .frame(width: 44, height: 44)
                             Image(systemName: coachInsight.symbol)
-                                .font(.system(size: 20, weight: .medium))
+                                .font(.system(size: 18, weight: .medium))
                                 .foregroundStyle(coachInsight.color)
                                 .symbolRenderingMode(.hierarchical)
                         }
-                        VStack(alignment: .leading, spacing: 5) {
+                        VStack(alignment: .leading, spacing: 4) {
                             Text(coachInsight.title)
                                 .font(.system(size: 15, weight: .semibold))
-                                .foregroundStyle(.primary)
                             Text(coachInsight.body)
-                                .font(.system(size: 14, weight: .regular))
+                                .font(.system(size: 14))
                                 .foregroundStyle(.secondary)
                                 .lineSpacing(3)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                     }
-                    .padding(.vertical, 6)
+                    .padding(.vertical, 4)
                 } header: {
                     Label("Coach Insight", systemImage: "person.fill.checkmark")
                         .symbolRenderingMode(.hierarchical)
                 }
 
-                // ── METRICS ───────────────────────────────────
+                // ── METRICS ───────────────────────────────
                 if hasRealSpeech {
                     Section {
-                        MetricListRow(
-                            symbol: "speedometer",
-                            label: "Pacing",
-                            value: animatedWPM == 0 ? "—" : "\(animatedWPM) WPM",
-                            badge: pacingBadge,
-                            color: pacingColor
-                        )
-                        MetricListRow(
-                            symbol: "exclamationmark.bubble.fill",
-                            label: "Filler Words",
-                            value: "\(animatedFillers)",
-                            badge: fillerBadge,
-                            color: fillerColor
-                        )
-                        MetricListRow(
-                            symbol: "eye.fill",
-                            label: "Eye Contact",
-                            value: "\(animatedEye)%",
-                            badge: eyeBadge,
-                            color: eyeColor
-                        )
-                        MetricListRow(
-                            symbol: "waveform.path",
-                            label: "Rhythm",
-                            value: String(format: "%.0f%%", animatedRhythm),
-                            badge: rhythmBadge,
-                            color: rhythmColor
-                        )
+                        MetricListRow(symbol: "speedometer",
+                                      label: "Pacing",
+                                      value: animatedWPM == 0 ? "—" : "\(animatedWPM) WPM",
+                                      badge: pacingBadge, color: pacingColor)
+                        MetricListRow(symbol: "exclamationmark.bubble.fill",
+                                      label: "Filler Words",
+                                      value: "\(animatedFillers)",
+                                      badge: fillerBadge, color: fillerColor)
+                        MetricListRow(symbol: "eye.fill",
+                                      label: "Eye Contact",
+                                      value: "\(animatedEye)%",
+                                      badge: eyeBadge, color: eyeColor)
+                        MetricListRow(symbol: "waveform.path",
+                                      label: "Rhythm",
+                                      value: String(format: "%.0f%%", animatedRhythm),
+                                      badge: rhythmBadge, color: rhythmColor)
                     } header: {
                         Label("Metrics", systemImage: "chart.bar.fill")
                             .symbolRenderingMode(.hierarchical)
                     }
 
-                    // ── SPEECH DNA TIMELINE ───────────────────
                     Section {
                         SpeechDNATimeline(
                             events: session.finalFlowEvents,
@@ -190,21 +183,23 @@ struct SummaryView: View {
                     }
                 }
 
-                // ── TRANSCRIPT ────────────────────────────────
-                Section {
-                    Text(session.finalTranscript)
-                        .font(.system(size: 14, weight: .regular))
-                        .foregroundStyle(.primary)
-                        .lineSpacing(4)
-                } header: {
-                    Label("Transcript", systemImage: "text.quote")
-                        .symbolRenderingMode(.hierarchical)
+                // ── TRANSCRIPT ─────────────────────────────
+                if !session.finalTranscript.isEmpty {
+                    Section {
+                        Text(session.finalTranscript)
+                            .font(.system(size: 14))
+                            .foregroundStyle(.primary)
+                            .lineSpacing(4)
+                    } header: {
+                        Label("Transcript", systemImage: "text.quote")
+                            .symbolRenderingMode(.hierarchical)
+                    }
                 }
 
-                // ── PRACTICE AGAIN ────────────────────────────
+                // ── PRACTICE AGAIN ─────────────────────────
                 Section {
                     Button {
-                        withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
+                        withAnimation(.spring(response: 0.45, dampingFraction: 0.8)) {
                             session.resetSession()
                         }
                     } label: {
@@ -218,16 +213,33 @@ struct SummaryView: View {
                     .buttonStyle(.plain)
                     .listRowInsets(EdgeInsets())
                     .listRowBackground(Color.clear)
+                    .accessibilityLabel("Practice Again")
                 }
             }
             .listStyle(.insetGrouped)
             .navigationTitle("Session Complete")
             .navigationBarTitleDisplayMode(.large)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    // Checkmark SF Symbol — clean, obvious, Apple-standard
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.35)) {
+                            session.resetSession()
+                        }
+                    } label: {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 22))
+                            .symbolRenderingMode(.hierarchical)
+                            .foregroundStyle(.mint)
+                    }
+                    .accessibilityLabel("Done — return to home")
+                }
+            }
         }
         .onAppear {
             guard hasRealSpeech else { return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                withAnimation(.easeOut(duration: 1.2)) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                withAnimation(.easeOut(duration: 1.1)) {
                     animatedWPM     = session.finalWPM
                     animatedFillers = session.finalFillers
                     animatedEye     = session.eyeContactPercentage
@@ -238,7 +250,7 @@ struct SummaryView: View {
         }
     }
 
-    // MARK: - Computed labels
+    // MARK: - Labels
     private var subtitleText: String {
         guard hasRealSpeech else { return "No speech detected" }
         let d = Int(session.duration)
@@ -248,58 +260,74 @@ struct SummaryView: View {
 
     private var pacingBadge: String {
         switch session.finalWPM {
-        case 120...160: return "Ideal"; case 100..<120: return "Slightly slow"
-        case 160..<180: return "Slightly fast"; case 0: return "No speech"
-        default: return session.finalWPM > 180 ? "Too fast" : "Too slow"
+        case 120...160: return "Ideal"
+        case 100..<120: return "Slightly slow"
+        case 160..<180: return "Slightly fast"
+        case 0:         return "No speech"
+        default:        return session.finalWPM > 180 ? "Too fast" : "Too slow"
         }
     }
     private var pacingColor: Color {
         switch session.finalWPM {
-        case 120...160: return .mint; case 100..<120, 160..<180: return .yellow
-        case 0: return .secondary; default: return .orange
+        case 120...160:           return .mint
+        case 100..<120, 160..<180: return .yellow
+        case 0:                    return .secondary
+        default:                   return .orange
         }
     }
     private var fillerBadge: String {
         switch session.finalFillers {
-        case 0: return "Flawless"; case 1...3: return "Great"
-        case 4...7: return "Noticeable"; default: return "Needs work"
+        case 0:     return "Flawless"
+        case 1...3: return "Great"
+        case 4...7: return "Noticeable"
+        default:    return "Needs work"
         }
     }
     private var fillerColor: Color {
         switch session.finalFillers {
-        case 0...3: return .mint; case 4...7: return .yellow; default: return .red
+        case 0...3: return .mint
+        case 4...7: return .yellow
+        default:    return .red
         }
     }
     private var eyeBadge: String {
         switch session.eyeContactPercentage {
-        case 75...100: return "Excellent"; case 50..<75: return "Good"; default: return "Needs work"
+        case 75...100: return "Excellent"
+        case 50..<75:  return "Good"
+        default:       return "Needs work"
         }
     }
     private var eyeColor: Color {
         switch session.eyeContactPercentage {
-        case 75...100: return .mint; case 50..<75: return .yellow; default: return .orange
+        case 75...100: return .mint
+        case 50..<75:  return .yellow
+        default:       return .orange
         }
     }
     private var rhythmBadge: String {
         switch session.finalRhythmStability {
-        case 85...100: return "Consistent"; case 65..<85: return "Decent"
-        case 40..<65: return "Uneven"; default: return "Choppy"
+        case 85...100: return "Consistent"
+        case 65..<85:  return "Decent"
+        case 40..<65:  return "Uneven"
+        default:       return "Choppy"
         }
     }
     private var rhythmColor: Color {
         switch session.finalRhythmStability {
-        case 75...100: return .mint; case 50..<75: return .yellow; default: return .orange
+        case 75...100: return .mint
+        case 50..<75:  return .yellow
+        default:       return .orange
         }
     }
 }
 
-// MARK: - Metric List Row
+// MARK: - Metric Row
 struct MetricListRow: View {
     let symbol: String
-    let label: String
-    let value: String
-    let badge: String
-    let color: Color
+    let label:  String
+    let value:  String
+    let badge:  String
+    let color:  Color
 
     var body: some View {
         HStack {
@@ -307,13 +335,10 @@ struct MetricListRow: View {
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(color)
                 .font(.system(size: 15, weight: .medium))
-
             Spacer()
-
             VStack(alignment: .trailing, spacing: 2) {
                 Text(value)
                     .font(.system(size: 16, weight: .bold, design: .rounded))
-                    .foregroundStyle(.primary)
                     .contentTransition(.numericText())
                 Text(badge)
                     .font(.system(size: 11, weight: .medium))
@@ -321,36 +346,36 @@ struct MetricListRow: View {
             }
         }
         .padding(.vertical, 4)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(label): \(value). \(badge)")
     }
 }
 
 // MARK: - Speech DNA Timeline
 struct SpeechDNATimeline: View {
-    let events: [FlowEvent]
+    let events:   [FlowEvent]
     let duration: TimeInterval
 
-    private var strongCount: Int    { events.filter { if case .strongMoment = $0.type { return true }; return false }.count }
-    private var fillerCount: Int    { events.filter { if case .filler = $0.type { return true }; return false }.count }
-    private var hesitCount: Int     { events.filter { if case .hesitation = $0.type { return true }; return false }.count }
-    private var breakCount: Int     { events.filter { if case .flowBreak = $0.type { return true }; return false }.count }
+    private var strongCount: Int { events.filter { if case .strongMoment = $0.type { return true }; return false }.count }
+    private var fillerCount: Int { events.filter { if case .filler      = $0.type { return true }; return false }.count }
+    private var hesitCount:  Int { events.filter { if case .hesitation  = $0.type { return true }; return false }.count }
+    private var breakCount:  Int { events.filter { if case .flowBreak   = $0.type { return true }; return false }.count }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             if events.isEmpty {
                 Text("No flow events recorded")
-                    .font(.system(size: 14))
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 14)).foregroundStyle(.secondary)
             } else {
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
                         RoundedRectangle(cornerRadius: 8)
                             .fill(Color(uiColor: .tertiarySystemFill))
                             .frame(height: 48)
-
-                        ForEach(events) { event in
-                            let x = duration > 1 ? geo.size.width * CGFloat(event.timestamp / duration) : 0
+                        ForEach(events) { ev in
+                            let x = duration > 1 ? geo.size.width * CGFloat(ev.timestamp / duration) : 0
                             RoundedRectangle(cornerRadius: 2)
-                                .fill(event.color)
+                                .fill(ev.color)
                                 .frame(width: 4, height: 34)
                                 .offset(x: min(max(x - 2, 0), geo.size.width - 4),
                                         y: (48 - 34) / 2)
@@ -359,15 +384,12 @@ struct SpeechDNATimeline: View {
                 }
                 .frame(height: 48)
 
-                // Time labels
                 HStack {
                     Text("0:00").font(.system(size: 11)).foregroundStyle(.tertiary)
                     Spacer()
                     Text(timeLabel(duration)).font(.system(size: 11)).foregroundStyle(.tertiary)
                 }
-
-                // Event counts
-                HStack(spacing: 18) {
+                HStack(spacing: 16) {
                     DNAEventCount(color: .mint,   count: strongCount, label: "Strong")
                     DNAEventCount(color: .orange, count: fillerCount, label: "Fillers")
                     DNAEventCount(color: .yellow, count: hesitCount,  label: "Pauses")
@@ -375,6 +397,8 @@ struct SpeechDNATimeline: View {
                 }
             }
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(strongCount) strong moments, \(fillerCount) fillers, \(hesitCount) pauses, \(breakCount) breaks")
     }
 
     private func timeLabel(_ t: TimeInterval) -> String {

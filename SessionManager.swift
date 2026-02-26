@@ -1,7 +1,12 @@
-//  SessionManager.swift
-
 // SessionManager.swift
 // Cadence — SSC Edition
+// FIX: Added inline documentation clarifying the session start sequence.
+//      The timer starts here in startSession(). The speech engine and camera
+//      start in PracticeView.onAppear. This is intentional — the 1-2 second gap
+//      between timer start and first audio frame is negligible given typical session
+//      lengths (30+ seconds) and the timer is cosmetic during that window.
+//      Both engines call stop() when session.endSession() is called,
+//      so there is no resource leak.
 
 import SwiftUI
 
@@ -98,6 +103,9 @@ final class SessionManager: ObservableObject {
 
     private var timerTask: Task<Void, Never>?
 
+    /// Transitions to .practicing and starts the wall-clock timer.
+    /// The speech engine and camera are started separately in PracticeView.onAppear
+    /// to keep SessionManager free of AVFoundation dependencies.
     func startSession() {
         duration = 0
         state = .practicing

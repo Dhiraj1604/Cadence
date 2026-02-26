@@ -1,14 +1,59 @@
-//
-//  ReadPracticeView.swift
-//  Cadence
 // ReadPracticeView.swift
 // Cadence — iOS 26 Native Redesign
 // ★ FLAGSHIP: Read & Analyze — word-by-word live tracking
-// Completely redesigned for readability with clean card system
+// FIX: ReadWordFlowView replaced manual UIFont-based layout engine with
+//      a proper SwiftUI Layout protocol implementation (FlowLayout).
+//      The old approach broke with Dynamic Type and non-default font sizes.
 
 import SwiftUI
 import Speech
 import AVFoundation
+
+// ─────────────────────────────────────────────────────────────
+// MARK: - FlowLayout (replaces manual GeometryReader word wrap)
+// ─────────────────────────────────────────────────────────────
+
+/// A SwiftUI Layout that wraps children into rows, like CSS flex-wrap.
+/// Works correctly with Dynamic Type, VoiceOver, and all font sizes.
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 6
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let result = flowResult(in: proposal.replacingUnspecifiedDimensions().width, subviews: subviews)
+        return result.size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let result = flowResult(in: bounds.width, subviews: subviews)
+        for (index, frame) in result.frames.enumerated() {
+            subviews[index].place(
+                at: CGPoint(x: frame.minX + bounds.minX, y: frame.minY + bounds.minY),
+                proposal: .unspecified
+            )
+        }
+    }
+
+    private func flowResult(in maxWidth: CGFloat, subviews: Subviews) -> (size: CGSize, frames: [CGRect]) {
+        var frames: [CGRect] = []
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var lineHeight: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x + size.width > maxWidth, x > 0 {
+                x = 0
+                y += lineHeight + spacing
+                lineHeight = 0
+            }
+            frames.append(CGRect(origin: CGPoint(x: x, y: y), size: size))
+            x += size.width + spacing
+            lineHeight = max(lineHeight, size.height)
+        }
+
+        return (CGSize(width: maxWidth, height: y + lineHeight), frames)
+    }
+}
 
 // ─────────────────────────────────────────────────────────────
 // MARK: - Data Models
@@ -149,7 +194,7 @@ struct ReadingAnalysis {
 }
 
 // ─────────────────────────────────────────────────────────────
-// MARK: - Reading Engine (unchanged logic, same as before)
+// MARK: - Reading Engine
 // ─────────────────────────────────────────────────────────────
 
 @MainActor
@@ -244,7 +289,8 @@ class ReadingEngine: ObservableObject {
 
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
-        request.requiresOnDeviceRecognition = true
+        // FIX: Same on-device recognition fallback as SpeechCoachEngine
+        request.requiresOnDeviceRecognition = speechRecognizer?.supportsOnDeviceRecognition ?? false
         self.recognitionRequest = request
 
         recognitionTask = speechRecognizer?.recognitionTask(with: request) { [weak self] result, error in
@@ -430,7 +476,7 @@ struct ReadPracticeView: View {
 }
 
 // ─────────────────────────────────────────────────────────────
-// MARK: - Prompt Selection (Clean iOS 26 Card Design)
+// MARK: - Prompt Selection
 // ─────────────────────────────────────────────────────────────
 
 struct ReadPromptSelectionView: View {
@@ -440,10 +486,7 @@ struct ReadPromptSelectionView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-
-            // ── Hero Header ──────────────────────────────────
             VStack(spacing: 16) {
-                // Icon + title
                 HStack(spacing: 14) {
                     ZStack {
                         RoundedRectangle(cornerRadius: 14)
@@ -465,7 +508,6 @@ struct ReadPromptSelectionView: View {
                     Spacer()
                 }
 
-                // How-it-works pills
                 HStack(spacing: 10) {
                     ForEach(Array(howItWorks.enumerated()), id: \.0) { i, step in
                         HStack(spacing: 6) {
@@ -499,13 +541,10 @@ struct ReadPromptSelectionView: View {
             .padding(.top, 16)
             .padding(.bottom, 16)
 
-            Divider()
-                .background(Color.white.opacity(0.08))
+            Divider().background(Color.white.opacity(0.08))
 
-            // ── Passage List ─────────────────────────────────
             ScrollView(showsIndicators: false) {
                 LazyVStack(spacing: 0) {
-                    // Section header
                     Text("Choose a Passage")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(Color(white: 0.4))
@@ -514,7 +553,6 @@ struct ReadPromptSelectionView: View {
                         .padding(.top, 16)
                         .padding(.bottom, 10)
 
-                    // Cards
                     ForEach(ReadingPrompt.library) { prompt in
                         ReadPromptCard(
                             prompt: prompt,
@@ -530,7 +568,6 @@ struct ReadPromptSelectionView: View {
             }
         }
         .overlay(alignment: .bottom) {
-            // ── Sticky Start Button ──────────────────────────
             VStack(spacing: 0) {
                 LinearGradient(
                     colors: [.clear, .black.opacity(0.92)],
@@ -568,6 +605,7 @@ struct ReadPromptSelectionView: View {
                 .padding(.horizontal, 20)
                 .padding(.bottom, 12)
                 .background(.black.opacity(0.92))
+                .accessibilityLabel(selectedPrompt == nil ? "Choose a passage first" : "Start reading \(selectedPrompt?.title ?? "")")
             }
         }
     }
@@ -580,7 +618,7 @@ struct ReadPromptSelectionView: View {
 }
 
 // ─────────────────────────────────────────────────────────────
-// MARK: - Prompt Card (Clean, Readable, iOS 26)
+// MARK: - Prompt Card
 // ─────────────────────────────────────────────────────────────
 
 struct ReadPromptCard: View {
@@ -598,7 +636,6 @@ struct ReadPromptCard: View {
     var body: some View {
         Button(action: onTap) {
             VStack(alignment: .leading, spacing: 0) {
-                // Top row — icon, title, badge
                 HStack(spacing: 12) {
                     ZStack {
                         RoundedRectangle(cornerRadius: 10)
@@ -643,12 +680,10 @@ struct ReadPromptCard: View {
                 }
                 .padding(14)
 
-                // Divider
                 Divider()
                     .background(Color.white.opacity(isSelected ? 0.12 : 0.06))
                     .padding(.horizontal, 14)
 
-                // Preview text — clearly legible
                 Text(String(prompt.text.prefix(110)) + "…")
                     .font(.system(size: 13, weight: .regular))
                     .foregroundStyle(Color(white: isSelected ? 0.7 : 0.5))
@@ -670,6 +705,8 @@ struct ReadPromptCard: View {
         }
         .buttonStyle(PlainButtonStyle())
         .animation(.easeInOut(duration: 0.18), value: isSelected)
+        .accessibilityLabel("\(prompt.title). \(prompt.category). \(difficultyLabel). \(prompt.wordCount) words.")
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
 }
 
@@ -695,12 +732,13 @@ struct ReadCountdownView: View {
                 .font(.system(size: 16, weight: .regular))
                 .foregroundStyle(Color(white: 0.5))
         }
+        .accessibilityLabel("Starting in \(count)")
         .onAppear {
             withAnimation(.spring(response: 0.4, dampingFraction: 0.6)) {
                 scale = 1.0; opacity = 1.0
             }
         }
-        .onChange(of: count) { _ in
+        .onChange(of: count) { _, _ in
             scale = 0.4; opacity = 0
             withAnimation(.spring(response: 0.35, dampingFraction: 0.6)) {
                 scale = 1.0; opacity = 1.0
@@ -723,7 +761,6 @@ struct ReadingSessionView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // ── Header ───────────────────────────────────────
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Reading")
@@ -744,13 +781,13 @@ struct ReadingSessionView: View {
                             .foregroundStyle(Color(white: 0.35))
                             .symbolRenderingMode(.hierarchical)
                     }
+                    .accessibilityLabel("Stop reading")
                 }
             }
             .padding(.horizontal, 20)
             .padding(.top, 52)
             .padding(.bottom, 12)
 
-            // ── Progress Bar ─────────────────────────────────
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     Capsule()
@@ -765,8 +802,9 @@ struct ReadingSessionView: View {
             .frame(height: 4)
             .padding(.horizontal, 20)
             .padding(.bottom, 18)
+            .accessibilityLabel(String(format: "Reading progress: %.0f percent", progress * 100))
 
-            // ── Word Flow ────────────────────────────────────
+            // FIX: replaced fragile manual GeometryReader layout with FlowLayout
             ScrollView(showsIndicators: false) {
                 ReadWordFlowView(words: engine.words)
                     .padding(.horizontal, 20)
@@ -775,7 +813,6 @@ struct ReadingSessionView: View {
 
             Spacer()
 
-            // ── Live Transcript ──────────────────────────────
             HStack(spacing: 8) {
                 Circle()
                     .fill(.red)
@@ -793,6 +830,7 @@ struct ReadingSessionView: View {
             .environment(\.colorScheme, .dark)
             .padding(.horizontal, 20)
             .padding(.bottom, 50)
+            .accessibilityLabel("Transcript: \(engine.liveTranscript.isEmpty ? "waiting" : engine.liveTranscript)")
         }
     }
 
@@ -802,46 +840,24 @@ struct ReadingSessionView: View {
 }
 
 // ─────────────────────────────────────────────────────────────
-// MARK: - Word Flow
+// MARK: - Word Flow (FIX: uses FlowLayout instead of manual layout)
 // ─────────────────────────────────────────────────────────────
 
 struct ReadWordFlowView: View {
     let words: [ReadWord]
 
     var body: some View {
-        GeometryReader { geo in
-            buildFlow(in: geo.size.width)
-        }
-        .frame(minHeight: 200)
-    }
-
-    private func buildFlow(in totalWidth: CGFloat) -> some View {
-        var rows: [[ReadWord]] = [[]]
-        var currentRowWidth: CGFloat = 0
-        let spacing: CGFloat = 6
-        let font = UIFont.systemFont(ofSize: 17, weight: .medium)
-
-        for word in words {
-            let wordWidth = (word.text as NSString)
-                .size(withAttributes: [.font: font]).width + 22
-            if currentRowWidth + wordWidth + spacing > totalWidth && !rows.last!.isEmpty {
-                rows.append([])
-                currentRowWidth = 0
-            }
-            rows[rows.count - 1].append(word)
-            currentRowWidth += wordWidth + spacing
-        }
-
-        return VStack(alignment: .leading, spacing: 9) {
-            ForEach(Array(rows.enumerated()), id: \.0) { _, row in
-                HStack(spacing: 6) {
-                    ForEach(row) { word in
-                        ReadWordChip(word: word)
-                    }
-                }
+        // FIX: FlowLayout is a proper SwiftUI Layout that:
+        //  1. Respects Dynamic Type (asks views for their natural size via sizeThatFits)
+        //  2. Doesn't rely on UIFont metrics which can diverge from SwiftUI rendering
+        //  3. Works correctly at all accessibility text sizes
+        FlowLayout(spacing: 6) {
+            ForEach(words) { word in
+                ReadWordChip(word: word)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Passage words: \(words.map { $0.text }.joined(separator: " "))")
     }
 }
 
@@ -916,7 +932,6 @@ struct ReadingResultsView: View {
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 20) {
-                // Header
                 VStack(spacing: 6) {
                     Text("Reading Complete")
                         .font(.system(size: 30, weight: .bold))
@@ -929,7 +944,6 @@ struct ReadingResultsView: View {
                 .opacity(appeared ? 1 : 0)
                 .animation(.easeOut(duration: 0.5).delay(0.1), value: appeared)
 
-                // Accuracy Ring
                 ZStack {
                     Circle()
                         .stroke(Color.white.opacity(0.08), lineWidth: 10)
@@ -960,10 +974,11 @@ struct ReadingResultsView: View {
                             .foregroundStyle(analysis.accuracyColor)
                     }
                 }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Accuracy \(Int(animAccuracy)) percent. \(analysis.accuracyBadge)")
                 .opacity(appeared ? 1 : 0)
                 .animation(.easeOut(duration: 0.5).delay(0.2), value: appeared)
 
-                // Stats row
                 HStack(spacing: 12) {
                     ReadResultStatCard(
                         icon: "speedometer",
@@ -991,13 +1006,11 @@ struct ReadingResultsView: View {
                 .opacity(appeared ? 1 : 0)
                 .animation(.easeOut(duration: 0.5).delay(0.35), value: appeared)
 
-                // Word map
                 ReadWordMapView(words: analysis.words)
                     .padding(.horizontal, 20)
                     .opacity(appeared ? 1 : 0)
                     .animation(.easeOut(duration: 0.5).delay(0.5), value: appeared)
 
-                // Problem words
                 if !analysis.stumbledWords.isEmpty {
                     ReadWordListCard(
                         title: "Stumbled On",
@@ -1011,7 +1024,6 @@ struct ReadingResultsView: View {
                     .animation(.easeOut(duration: 0.5).delay(0.6), value: appeared)
                 }
 
-                // CTA buttons
                 HStack(spacing: 12) {
                     Button(action: onDone) {
                         HStack(spacing: 8) {
@@ -1101,6 +1113,8 @@ struct ReadResultStatCard: View {
         .padding(13)
         .background(Color.white.opacity(0.06))
         .clipShape(RoundedRectangle(cornerRadius: 14))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(title): \(value). \(badge)")
     }
 }
 
@@ -1136,6 +1150,8 @@ struct ReadWordMapView: View {
         .padding(16)
         .background(Color.white.opacity(0.06))
         .clipShape(RoundedRectangle(cornerRadius: 14))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Reading map: \(words.filter { $0.state == .correct }.count) correct, \(words.filter { $0.state == .stumbled }.count) stumbled, \(words.filter { $0.state == .skipped }.count) skipped")
     }
 
     private func dotColor(_ state: WordState) -> Color {
@@ -1177,7 +1193,6 @@ struct ReadWordListCard: View {
                     .foregroundStyle(.white)
             }
 
-            // Word chips
             let columns = [GridItem(.adaptive(minimum: 70))]
             LazyVGrid(columns: columns, alignment: .leading, spacing: 6) {
                 ForEach(words.prefix(20), id: \.self) { word in
@@ -1203,5 +1218,7 @@ struct ReadWordListCard: View {
             RoundedRectangle(cornerRadius: 14)
                 .strokeBorder(color.opacity(0.2), lineWidth: 1)
         )
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(title): \(words.prefix(20).joined(separator: ", ")). \(tip)")
     }
 }
