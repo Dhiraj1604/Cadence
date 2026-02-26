@@ -11,89 +11,89 @@ struct SummaryView: View {
     @EnvironmentObject var session: SessionManager
     
     var body: some View {
-        VStack(spacing: 25) {
+        VStack(alignment: .leading, spacing: 20) {
+            
             Text("Practice Complete")
-                .font(.system(size: 36, weight: .bold))
+                .font(.largeTitle)
+                .bold()
                 .foregroundColor(.white)
                 .padding(.top, 40)
             
             // Metrics Grid
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 20) {
-                MetricCard(title: "Pacing", value: "\(session.finalWPM)", subtitle: "Words / Min", color: .mint)
-                MetricCard(title: "Filler Words", value: "\(session.finalFillers)", subtitle: "Total Count", color: .orange)
-                MetricCard(title: "Eye Contact", value: "\(session.eyeContactPercentage)%", subtitle: "Of Total Time", color: .green)
-                MetricCard(title: "Duration", value: timeString(from: session.duration), subtitle: "Minutes", color: .blue)
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 15) {
+                SummaryCard(title: "Pacing", value: "\(session.finalWPM)", unit: "Words / Min", valueColor: .teal)
+                SummaryCard(title: "Filler Words", value: "\(session.finalFillers)", unit: "Total Count", valueColor: .orange)
+                SummaryCard(title: "Eye Contact", value: "\(session.eyeContactPercentage)%", unit: "Of Total Time", valueColor: .green)
+                SummaryCard(title: "Duration", value: timeString(from: session.duration), unit: "Minutes", valueColor: .blue)
             }
-            .padding(.horizontal, 20)
+            
+            Text("Your Transcript")
+                .font(.headline)
+                .foregroundColor(.white)
+                .padding(.top, 10)
             
             // Transcript Box
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Your Transcript")
-                    .font(.headline)
-                    .foregroundColor(.white)
-                
-                ScrollView {
-                    Text(session.finalTranscript.isEmpty ? "No speech was detected during this session." : session.finalTranscript)
-                        .font(.body)
-                        .foregroundColor(.white.opacity(0.8))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .frame(height: 150)
-                .padding()
-                .background(Color.white.opacity(0.1))
-                .cornerRadius(16)
+            ScrollView {
+                Text(session.finalTranscript)
+                    .foregroundColor(.gray)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding()
             }
-            .padding(.horizontal, 20)
+            .background(Color(red: 0.1, green: 0.1, blue: 0.1))
+            .cornerRadius(12)
             
             Spacer()
             
+            // Practice Again Button
             Button(action: {
-                session.resetSession()
+                withAnimation {
+                    session.resetSession()
+                }
             }) {
                 Text("Practice Again")
-                    .font(.title3.bold())
+                    .font(.headline)
+                    .foregroundColor(.black)
                     .frame(maxWidth: .infinity)
                     .padding()
-                    .background(Color.mint)
-                    .foregroundColor(.black)
-                    .cornerRadius(16)
+                    .background(Color.teal.opacity(0.8))
+                    .cornerRadius(15)
             }
-            .padding(.horizontal, 40)
-            .padding(.bottom, 40)
+            .padding(.bottom, 20)
         }
+        .padding(.horizontal)
         .background(Color.black.ignoresSafeArea())
     }
     
-    private func timeString(from timeInterval: TimeInterval) -> String {
-        let minutes = Int(timeInterval) / 60
-        let seconds = Int(timeInterval) % 60
-        return String(format: "%02d:%02d", minutes, seconds)
+    private func timeString(from duration: TimeInterval) -> String {
+        let seconds = Int(duration)
+        let minutes = seconds / 60
+        let remainingSeconds = seconds % 60
+        return String(format: "%02d:%02d", minutes, remainingSeconds)
     }
 }
 
-struct MetricCard: View {
+// Reusable Card Component
+struct SummaryCard: View {
     var title: String
     var value: String
-    var subtitle: String
-    var color: Color
+    var unit: String
+    var valueColor: Color
     
     var body: some View {
         VStack(spacing: 8) {
             Text(title)
                 .font(.subheadline)
-                .foregroundColor(.white.opacity(0.7))
-            
+                .foregroundColor(.gray)
             Text(value)
-                .font(.system(size: 38, weight: .bold, design: .rounded))
-                .foregroundColor(color)
-            
-            Text(subtitle)
+                .font(.system(size: 36, weight: .bold))
+                .foregroundColor(valueColor)
+            Text(unit)
                 .font(.caption)
-                .foregroundColor(.white.opacity(0.5))
+                .foregroundColor(.gray)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 20)
-        .background(Color.white.opacity(0.1))
-        .cornerRadius(16)
+        .background(Color(red: 0.1, green: 0.1, blue: 0.1))
+        .cornerRadius(12)
     }
 }

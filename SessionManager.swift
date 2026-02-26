@@ -20,7 +20,7 @@ final class SessionManager: ObservableObject {
     // Final Session Statistics
     @Published var finalWPM: Int = 0
     @Published var finalFillers: Int = 0
-    @Published var finalTranscript: String = ""
+    @Published var finalTranscript: String = "No speech was detected during this session."
     @Published var eyeContactPercentage: Int = 0
     
     private var timerTask: Task<Void, Never>?
@@ -44,7 +44,10 @@ final class SessionManager: ObservableObject {
         
         self.finalWPM = wpm
         self.finalFillers = fillers
-        self.finalTranscript = transcript
+        
+        if !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            self.finalTranscript = transcript
+        }
         
         // Calculate Eye Contact %
         if duration > 0 {
@@ -59,6 +62,10 @@ final class SessionManager: ObservableObject {
     func resetSession() {
         timerTask?.cancel()
         duration = 0
+        finalWPM = 0
+        finalFillers = 0
+        eyeContactPercentage = 0
+        finalTranscript = "No speech was detected during this session."
         state = .idle
     }
 }

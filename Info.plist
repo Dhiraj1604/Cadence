@@ -2,6 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Cadence needs speech recognition to measure your speaking rhythm and hesitations.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Cadence needs camera access so you can observe your eye contact while practicing.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Cadence uses microphone to help users practice speaking.</string>
 </dict>
