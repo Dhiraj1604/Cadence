@@ -1,12 +1,7 @@
 // SessionManager.swift
 // Cadence — SSC Edition
-// FIX: Added inline documentation clarifying the session start sequence.
-//      The timer starts here in startSession(). The speech engine and camera
-//      start in PracticeView.onAppear. This is intentional — the 1-2 second gap
-//      between timer start and first audio frame is negligible given typical session
-//      lengths (30+ seconds) and the timer is cosmetic during that window.
-//      Both engines call stop() when session.endSession() is called,
-//      so there is no resource leak.
+// UPDATED: SessionRecord now stores flowEvents so Speech Signatures
+// can be fully reconstructed in InsightsView from historical sessions.
 
 import SwiftUI
 
@@ -17,7 +12,7 @@ enum SessionState {
     case summary
 }
 
-// MARK: - Session Record
+// MARK: - Session Record (now includes flowEvents for signature replay)
 struct SessionRecord: Identifiable {
     let id = UUID()
     let date: Date
@@ -27,6 +22,7 @@ struct SessionRecord: Identifiable {
     let eyeContact: Int
     let rhythmStability: Double
     let transcript: String
+    let flowEvents: [FlowEvent]     // Added: enables Speech Signature replay
 
     var durationString: String {
         let d = Int(duration)
@@ -67,6 +63,19 @@ struct SessionRecord: Identifiable {
         default:       return .orange
         }
     }
+
+    // Convenience: build SpeechSignatureData from this record
+    var signatureData: SpeechSignatureData {
+        SpeechSignatureData(
+            wpm: wpm,
+            fillerCount: fillers,
+            rhythmStability: rhythmStability,
+            eyeContactPercent: eyeContact,
+            flowEvents: flowEvents,
+            duration: duration,
+            overallScore: performanceScore
+        )
+    }
 }
 
 // MARK: - Session Manager
@@ -103,9 +112,6 @@ final class SessionManager: ObservableObject {
 
     private var timerTask: Task<Void, Never>?
 
-    /// Transitions to .practicing and starts the wall-clock timer.
-    /// The speech engine and camera are started separately in PracticeView.onAppear
-    /// to keep SessionManager free of AVFoundation dependencies.
     func startSession() {
         duration = 0
         state = .practicing
@@ -153,7 +159,8 @@ final class SessionManager: ObservableObject {
                 fillers: fillers,
                 eyeContact: eyeContactPercentage,
                 rhythmStability: rhythmStability,
-                transcript: finalTranscript
+                transcript: finalTranscript,
+                flowEvents: flowEvents          // Store flow events for signature replay
             )
             sessionHistory.insert(record, at: 0)
         }

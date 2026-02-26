@@ -1,8 +1,10 @@
 // SummaryView.swift
 // Cadence — iOS 26 Native
-// Navigation: checkmark.circle toolbar button (top-right) returns to home
-// "Practice Again" button at bottom also returns to home
-// Both call session.resetSession() → transitions to .idle
+// FIXED:
+//   • .preferredColorScheme(.dark) — no more gray/white List background
+//   • Speech Signature is the visual hero at the top
+//   • Score ring smaller and secondary
+//   • Consistent dark aesthetic matches PracticeView
 
 import SwiftUI
 
@@ -71,157 +73,223 @@ struct SummaryView: View {
                 "Rhythm at \(Int(session.finalRhythmStability))%. Every session builds the muscle.")
     }
 
+    private var signatureData: SpeechSignatureData {
+        SpeechSignatureData(
+            wpm: session.finalWPM,
+            fillerCount: session.finalFillers,
+            rhythmStability: session.finalRhythmStability,
+            eyeContactPercent: session.eyeContactPercentage,
+            flowEvents: session.finalFlowEvents,
+            duration: session.duration,
+            overallScore: overallScore
+        )
+    }
+
     var body: some View {
         NavigationStack {
-            List {
+            ZStack {
+                // Dark aurora background — consistent with home screen
+                ZStack {
+                    Color(red: 0.02, green: 0.04, blue: 0.05).ignoresSafeArea()
+                    // Subtle teal top bloom
+                    RadialGradient(
+                        colors: [Color(red: 0.04, green: 0.35, blue: 0.26).opacity(0.55), .clear],
+                        center: UnitPoint(x: 0.5, y: 0.0),
+                        startRadius: 0, endRadius: 380
+                    )
+                    .ignoresSafeArea()
+                    // Bottom-right purple
+                    RadialGradient(
+                        colors: [Color(red: 0.28, green: 0.10, blue: 0.52).opacity(0.30), .clear],
+                        center: UnitPoint(x: 0.9, y: 1.0),
+                        startRadius: 0, endRadius: 300
+                    )
+                    .ignoresSafeArea()
+                    // Vignette
+                    RadialGradient(
+                        colors: [.clear, Color.black.opacity(0.55)],
+                        center: .center, startRadius: 100, endRadius: 500
+                    )
+                    .ignoresSafeArea()
+                }
+                .ignoresSafeArea()
 
-                // ── SCORE RING ────────────────────────────
-                Section {
-                    HStack {
-                        Spacer()
-                        VStack(spacing: 14) {
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 20) {
+
+                        // ── SPEECH SIGNATURE ─────────────────────
+                        if hasRealSpeech {
+                            SpeechSignatureView(data: signatureData)
+                                .padding(.horizontal, 16)
+                        }
+
+                        // ── SCORE RING ────────────────────────────
+                        HStack(spacing: 20) {
+                            // Score ring
                             ZStack {
                                 Circle()
-                                    .stroke(Color(uiColor: .systemFill), lineWidth: 12)
-                                    .frame(width: 150, height: 150)
+                                    .stroke(Color.white.opacity(0.10), lineWidth: 10)
+                                    .frame(width: 110, height: 110)
                                 Circle()
                                     .trim(from: 0, to: CGFloat(animatedScore / 100))
                                     .stroke(
                                         scoreColor,
-                                        style: StrokeStyle(lineWidth: 12, lineCap: .round)
+                                        style: StrokeStyle(lineWidth: 10, lineCap: .round)
                                     )
-                                    .frame(width: 150, height: 150)
+                                    .frame(width: 110, height: 110)
                                     .rotationEffect(.degrees(-90))
                                     .animation(
                                         .spring(response: 1.5, dampingFraction: 0.75).delay(0.3),
                                         value: animatedScore
                                     )
-                                VStack(spacing: 4) {
+                                VStack(spacing: 3) {
                                     Text("\(Int(animatedScore))")
-                                        .font(.system(size: 44, weight: .bold, design: .rounded))
+                                        .font(.system(size: 34, weight: .bold, design: .rounded))
                                         .foregroundStyle(scoreColor)
                                         .contentTransition(.numericText())
                                     Text("Score")
-                                        .font(.system(size: 13))
+                                        .font(.system(size: 11))
                                         .foregroundStyle(.secondary)
                                 }
                             }
                             .accessibilityElement(children: .combine)
                             .accessibilityLabel("Session score \(Int(animatedScore)) out of 100")
 
-                            Text(subtitleText)
-                                .font(.system(size: 14))
-                                .foregroundStyle(.secondary)
-                                .multilineTextAlignment(.center)
-                        }
-                        Spacer()
-                    }
-                    .padding(.vertical, 20)
-                }
+                            // Stats alongside ring
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(subtitleText)
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundStyle(Color(white: 0.55))
+                                    .lineSpacing(3)
 
-                // ── COACH INSIGHT ─────────────────────────
-                Section {
-                    HStack(alignment: .top, spacing: 14) {
-                        ZStack {
-                            Circle()
-                                .fill(coachInsight.color.opacity(0.14))
-                                .frame(width: 44, height: 44)
-                            Image(systemName: coachInsight.symbol)
-                                .font(.system(size: 18, weight: .medium))
-                                .foregroundStyle(coachInsight.color)
-                                .symbolRenderingMode(.hierarchical)
-                        }
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(coachInsight.title)
-                                .font(.system(size: 15, weight: .semibold))
-                            Text(coachInsight.body)
-                                .font(.system(size: 14))
-                                .foregroundStyle(.secondary)
-                                .lineSpacing(3)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-                    .padding(.vertical, 4)
-                } header: {
-                    Label("Coach Insight", systemImage: "person.fill.checkmark")
-                        .symbolRenderingMode(.hierarchical)
-                }
+                                Text(coachInsight.title)
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(coachInsight.color)
 
-                // ── METRICS ───────────────────────────────
-                if hasRealSpeech {
-                    Section {
-                        MetricListRow(symbol: "speedometer",
-                                      label: "Pacing",
-                                      value: animatedWPM == 0 ? "—" : "\(animatedWPM) WPM",
-                                      badge: pacingBadge, color: pacingColor)
-                        MetricListRow(symbol: "exclamationmark.bubble.fill",
-                                      label: "Filler Words",
-                                      value: "\(animatedFillers)",
-                                      badge: fillerBadge, color: fillerColor)
-                        MetricListRow(symbol: "eye.fill",
-                                      label: "Eye Contact",
-                                      value: "\(animatedEye)%",
-                                      badge: eyeBadge, color: eyeColor)
-                        MetricListRow(symbol: "waveform.path",
-                                      label: "Rhythm",
-                                      value: String(format: "%.0f%%", animatedRhythm),
-                                      badge: rhythmBadge, color: rhythmColor)
-                    } header: {
-                        Label("Metrics", systemImage: "chart.bar.fill")
-                            .symbolRenderingMode(.hierarchical)
-                    }
-
-                    Section {
-                        SpeechDNATimeline(
-                            events: session.finalFlowEvents,
-                            duration: session.duration
+                                Text(coachInsight.body)
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(Color(white: 0.48))
+                                    .lineSpacing(3)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                        .padding(16)
+                        .background(Color.white.opacity(0.05))
+                        .clipShape(RoundedRectangle(cornerRadius: 18))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 18)
+                                .strokeBorder(scoreColor.opacity(0.12), lineWidth: 1)
                         )
-                        .padding(.vertical, 8)
-                    } header: {
-                        Label("Speech Flow DNA", systemImage: "waveform.path.ecg")
-                            .symbolRenderingMode(.hierarchical)
-                    }
-                }
+                        .padding(.horizontal, 16)
 
-                // ── TRANSCRIPT ─────────────────────────────
-                if !session.finalTranscript.isEmpty {
-                    Section {
-                        Text(session.finalTranscript)
-                            .font(.system(size: 14))
-                            .foregroundStyle(.primary)
-                            .lineSpacing(4)
-                    } header: {
-                        Label("Transcript", systemImage: "text.quote")
-                            .symbolRenderingMode(.hierarchical)
-                    }
-                }
+                        // ── METRICS ───────────────────────────────
+                        if hasRealSpeech {
+                            VStack(spacing: 1) {
+                                DarkMetricRow(symbol: "speedometer",
+                                              label: "Pacing",
+                                              value: animatedWPM == 0 ? "—" : "\(animatedWPM) WPM",
+                                              badge: pacingBadge, color: pacingColor,
+                                              isFirst: true, isLast: false)
+                                DarkMetricRow(symbol: "exclamationmark.bubble.fill",
+                                              label: "Filler Words",
+                                              value: "\(animatedFillers)",
+                                              badge: fillerBadge, color: fillerColor,
+                                              isFirst: false, isLast: false)
+                                DarkMetricRow(symbol: "eye.fill",
+                                              label: "Eye Contact",
+                                              value: "\(animatedEye)%",
+                                              badge: eyeBadge, color: eyeColor,
+                                              isFirst: false, isLast: false)
+                                DarkMetricRow(symbol: "waveform.path",
+                                              label: "Rhythm",
+                                              value: String(format: "%.0f%%", animatedRhythm),
+                                              badge: rhythmBadge, color: rhythmColor,
+                                              isFirst: false, isLast: true)
+                            }
+                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                            .padding(.horizontal, 16)
 
-                // ── PRACTICE AGAIN ─────────────────────────
-                Section {
-                    Button {
-                        withAnimation(.spring(response: 0.45, dampingFraction: 0.8)) {
-                            session.resetSession()
+                            // ── SPEECH FLOW DNA ────────────────────
+                            VStack(alignment: .leading, spacing: 12) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "waveform.path.ecg")
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(Color(white: 0.4))
+                                    Text("Speech Flow DNA")
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundStyle(Color(white: 0.4))
+                                }
+                                SpeechDNATimeline(
+                                    events: session.finalFlowEvents,
+                                    duration: session.duration
+                                )
+                            }
+                            .padding(16)
+                            .background(Color.white.opacity(0.05))
+                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                            .padding(.horizontal, 16)
                         }
-                    } label: {
-                        Label("Practice Again", systemImage: "arrow.counterclockwise")
-                            .font(.system(size: 17, weight: .semibold))
+
+                        // ── TRANSCRIPT ─────────────────────────────
+                        if !session.finalTranscript.isEmpty {
+                            VStack(alignment: .leading, spacing: 10) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "text.quote")
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(Color(white: 0.4))
+                                    Text("Transcript")
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundStyle(Color(white: 0.4))
+                                }
+                                Text(session.finalTranscript)
+                                    .font(.system(size: 14))
+                                    .foregroundStyle(Color(white: 0.68))
+                                    .lineSpacing(4)
+                            }
+                            .padding(16)
+                            .background(Color.white.opacity(0.05))
+                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                            .padding(.horizontal, 16)
+                        }
+
+                        // ── PRACTICE AGAIN ─────────────────────────
+                        Button {
+                            withAnimation(.spring(response: 0.45, dampingFraction: 0.8)) {
+                                session.resetSession()
+                            }
+                        } label: {
+                            HStack(spacing: 9) {
+                                Image(systemName: "arrow.counterclockwise")
+                                    .font(.system(size: 15, weight: .semibold))
+                                Text("Practice Again")
+                                    .font(.system(size: 17, weight: .semibold))
+                            }
                             .foregroundStyle(.black)
                             .frame(maxWidth: .infinity)
-                            .frame(height: 50)
-                            .background(.mint, in: RoundedRectangle(cornerRadius: 14))
+                            .frame(height: 54)
+                            .background(
+                                LinearGradient(
+                                    colors: [Color(red: 0.18, green: 0.97, blue: 0.76), Color(red: 0.08, green: 0.78, blue: 0.62)],
+                                    startPoint: .topLeading, endPoint: .bottomTrailing
+                                )
+                            )
+                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                            .shadow(color: Color.mint.opacity(0.25), radius: 12, y: 3)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 36)
+                        .accessibilityLabel("Practice Again")
                     }
-                    .buttonStyle(.plain)
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
-                    .accessibilityLabel("Practice Again")
+                    .padding(.top, 12)
                 }
             }
-            .listStyle(.insetGrouped)
             .navigationTitle("Session Complete")
             .navigationBarTitleDisplayMode(.large)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbarBackground(Color(red: 0.02, green: 0.04, blue: 0.05).opacity(0.9), for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    // Checkmark SF Symbol — clean, obvious, Apple-standard
                     Button {
                         withAnimation(.easeInOut(duration: 0.35)) {
                             session.resetSession()
@@ -236,6 +304,7 @@ struct SummaryView: View {
                 }
             }
         }
+        .preferredColorScheme(.dark)
         .onAppear {
             guard hasRealSpeech else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
@@ -250,7 +319,7 @@ struct SummaryView: View {
         }
     }
 
-    // MARK: - Labels
+    // MARK: - Subtitle
     private var subtitleText: String {
         guard hasRealSpeech else { return "No speech detected" }
         let d = Int(session.duration)
@@ -269,7 +338,7 @@ struct SummaryView: View {
     }
     private var pacingColor: Color {
         switch session.finalWPM {
-        case 120...160:           return .mint
+        case 120...160:            return .mint
         case 100..<120, 160..<180: return .yellow
         case 0:                    return .secondary
         default:                   return .orange
@@ -321,7 +390,117 @@ struct SummaryView: View {
     }
 }
 
-// MARK: - Metric Row
+// MARK: - Dark Metric Row (replaces List-based MetricListRow)
+
+struct DarkMetricRow: View {
+    let symbol: String
+    let label:  String
+    let value:  String
+    let badge:  String
+    let color:  Color
+    let isFirst: Bool
+    let isLast: Bool
+
+    var body: some View {
+        HStack {
+            Label(label, systemImage: symbol)
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(color)
+                .font(.system(size: 14, weight: .medium))
+            Spacer()
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(value)
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .contentTransition(.numericText())
+                Text(badge)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(color)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .background(Color.white.opacity(0.05))
+        .overlay(alignment: .bottom) {
+            if !isLast {
+                Rectangle()
+                    .fill(Color.white.opacity(0.06))
+                    .frame(height: 0.5)
+                    .padding(.leading, 16)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(label): \(value). \(badge)")
+    }
+}
+
+// MARK: - Speech DNA Timeline (dark version)
+
+struct SpeechDNATimeline: View {
+    let events:   [FlowEvent]
+    let duration: TimeInterval
+
+    private var strongCount: Int { events.filter { if case .strongMoment = $0.type { return true }; return false }.count }
+    private var fillerCount: Int { events.filter { if case .filler      = $0.type { return true }; return false }.count }
+    private var hesitCount:  Int { events.filter { if case .hesitation  = $0.type { return true }; return false }.count }
+    private var breakCount:  Int { events.filter { if case .flowBreak   = $0.type { return true }; return false }.count }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if events.isEmpty {
+                Text("No flow events recorded")
+                    .font(.system(size: 13)).foregroundStyle(.secondary)
+            } else {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Color.white.opacity(0.06))
+                            .frame(height: 44)
+                        ForEach(events) { ev in
+                            let x = duration > 1 ? geo.size.width * CGFloat(ev.timestamp / duration) : 0
+                            RoundedRectangle(cornerRadius: 2)
+                                .fill(ev.color)
+                                .frame(width: 3.5, height: 30)
+                                .offset(x: min(max(x - 1.75, 0), geo.size.width - 4),
+                                        y: (44 - 30) / 2)
+                        }
+                    }
+                }
+                .frame(height: 44)
+
+                HStack {
+                    Text("0:00").font(.system(size: 10)).foregroundStyle(.tertiary)
+                    Spacer()
+                    Text(timeLabel(duration)).font(.system(size: 10)).foregroundStyle(.tertiary)
+                }
+                HStack(spacing: 14) {
+                    DNAEventCount(color: .mint,   count: strongCount, label: "Strong")
+                    DNAEventCount(color: .orange, count: fillerCount, label: "Fillers")
+                    DNAEventCount(color: .yellow, count: hesitCount,  label: "Pauses")
+                    DNAEventCount(color: .red,    count: breakCount,  label: "Breaks")
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(strongCount) strong, \(fillerCount) fillers, \(hesitCount) pauses, \(breakCount) breaks")
+    }
+
+    private func timeLabel(_ t: TimeInterval) -> String {
+        String(format: "%d:%02d", Int(t)/60, Int(t)%60)
+    }
+}
+
+struct DNAEventCount: View {
+    let color: Color; let count: Int; let label: String
+    var body: some View {
+        HStack(spacing: 4) {
+            Circle().fill(color).frame(width: 6, height: 6)
+            Text("\(count) \(label)").font(.system(size: 10)).foregroundStyle(.secondary)
+        }
+    }
+}
+
+// MARK: - Metric Row (kept for InsightsView compatibility)
 struct MetricListRow: View {
     let symbol: String
     let label:  String
@@ -348,70 +527,5 @@ struct MetricListRow: View {
         .padding(.vertical, 4)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(label): \(value). \(badge)")
-    }
-}
-
-// MARK: - Speech DNA Timeline
-struct SpeechDNATimeline: View {
-    let events:   [FlowEvent]
-    let duration: TimeInterval
-
-    private var strongCount: Int { events.filter { if case .strongMoment = $0.type { return true }; return false }.count }
-    private var fillerCount: Int { events.filter { if case .filler      = $0.type { return true }; return false }.count }
-    private var hesitCount:  Int { events.filter { if case .hesitation  = $0.type { return true }; return false }.count }
-    private var breakCount:  Int { events.filter { if case .flowBreak   = $0.type { return true }; return false }.count }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            if events.isEmpty {
-                Text("No flow events recorded")
-                    .font(.system(size: 14)).foregroundStyle(.secondary)
-            } else {
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(Color(uiColor: .tertiarySystemFill))
-                            .frame(height: 48)
-                        ForEach(events) { ev in
-                            let x = duration > 1 ? geo.size.width * CGFloat(ev.timestamp / duration) : 0
-                            RoundedRectangle(cornerRadius: 2)
-                                .fill(ev.color)
-                                .frame(width: 4, height: 34)
-                                .offset(x: min(max(x - 2, 0), geo.size.width - 4),
-                                        y: (48 - 34) / 2)
-                        }
-                    }
-                }
-                .frame(height: 48)
-
-                HStack {
-                    Text("0:00").font(.system(size: 11)).foregroundStyle(.tertiary)
-                    Spacer()
-                    Text(timeLabel(duration)).font(.system(size: 11)).foregroundStyle(.tertiary)
-                }
-                HStack(spacing: 16) {
-                    DNAEventCount(color: .mint,   count: strongCount, label: "Strong")
-                    DNAEventCount(color: .orange, count: fillerCount, label: "Fillers")
-                    DNAEventCount(color: .yellow, count: hesitCount,  label: "Pauses")
-                    DNAEventCount(color: .red,    count: breakCount,  label: "Breaks")
-                }
-            }
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(strongCount) strong moments, \(fillerCount) fillers, \(hesitCount) pauses, \(breakCount) breaks")
-    }
-
-    private func timeLabel(_ t: TimeInterval) -> String {
-        String(format: "%d:%02d", Int(t)/60, Int(t)%60)
-    }
-}
-
-struct DNAEventCount: View {
-    let color: Color; let count: Int; let label: String
-    var body: some View {
-        HStack(spacing: 5) {
-            Circle().fill(color).frame(width: 7, height: 7)
-            Text("\(count) \(label)").font(.system(size: 11)).foregroundStyle(.secondary)
-        }
     }
 }

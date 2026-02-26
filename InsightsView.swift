@@ -1,14 +1,7 @@
-//
-//  InsightsView.swift
-//  Cadence
-//
-//  Created by Dhiraj on 26/02/26.
-//
-
-/// InsightsView.swift
+// InsightsView.swift
 // Cadence — iOS 26 Native
-// FIXED: Removed NavigationView (deprecated in iOS 16+) - use NavigationStack
-// SF Pro fonts, SF Symbols, Liquid Glass material
+// UPDATED: Session history cards now include compact Speech Signature previews.
+// Each past session shows its unique visual fingerprint at a glance.
 
 import SwiftUI
 
@@ -62,13 +55,13 @@ struct InsightsView: View {
 
                             // ── Session History ───────────────────
                             VStack(alignment: .leading, spacing: 10) {
-                                Text("Recent Sessions")
+                                Text("Session History")
                                     .font(.system(size: 17, weight: .semibold))
                                     .foregroundStyle(.white)
                                     .padding(.horizontal, 20)
 
                                 ForEach(session.sessionHistory) { record in
-                                    SessionHistoryCard(record: record)
+                                    EnhancedSessionCard(record: record)
                                         .padding(.horizontal, 20)
                                 }
                             }
@@ -82,6 +75,7 @@ struct InsightsView: View {
             .navigationBarTitleDisplayMode(.large)
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+            .preferredColorScheme(.dark)
         }
     }
 
@@ -122,7 +116,7 @@ struct EmptyProgressView: View {
     }
 }
 
-// MARK: - Stat Card (Liquid Glass)
+// MARK: - Stat Card
 struct ProgressStatCard: View {
     let value: String
     let label: String
@@ -233,65 +227,98 @@ struct WPMTrendCard: View {
     }
 }
 
-// MARK: - Session History Card
-struct SessionHistoryCard: View {
+// MARK: - Enhanced Session Card (with Speech Signature)
+
+struct EnhancedSessionCard: View {
     let record: SessionRecord
+    @State private var expanded = false
+
+    private var signatureData: SpeechSignatureData {
+        record.signatureData
+    }
 
     var body: some View {
-        HStack(spacing: 14) {
-            // Score ring
-            ZStack {
-                Circle()
-                    .stroke(record.scoreColor.opacity(0.2), lineWidth: 2)
-                    .frame(width: 48, height: 48)
-                Circle()
-                    .trim(from: 0, to: CGFloat(record.performanceScore) / 100.0)
-                    .stroke(record.scoreColor, style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                    .frame(width: 48, height: 48)
-                    .rotationEffect(.degrees(-90))
-                Text("\(record.performanceScore)")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(record.scoreColor)
-            }
-
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 8) {
-                    Text(record.dateString)
-                        .font(.system(size: 12, weight: .regular))
-                        .foregroundStyle(Color(white: 0.45))
-                    Text(record.durationString)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(Color(white: 0.35))
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 2)
-                        .background(Color.white.opacity(0.07))
-                        .clipShape(Capsule())
+        VStack(spacing: 0) {
+            // Main row
+            HStack(spacing: 14) {
+                // Score ring
+                ZStack {
+                    Circle()
+                        .stroke(record.scoreColor.opacity(0.2), lineWidth: 2)
+                        .frame(width: 48, height: 48)
+                    Circle()
+                        .trim(from: 0, to: CGFloat(record.performanceScore) / 100.0)
+                        .stroke(record.scoreColor, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                        .frame(width: 48, height: 48)
+                        .rotationEffect(.degrees(-90))
+                    Text("\(record.performanceScore)")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(record.scoreColor)
                 }
 
-                HStack(spacing: 12) {
-                    InsightStatPill(text: "\(record.wpm) WPM", color: .mint)
-                    InsightStatPill(
-                        text: "\(record.fillers) fillers",
-                        color: record.fillers > 5 ? .red : .orange
-                    )
-                    InsightStatPill(
-                        text: "\(record.eyeContact)% eye",
-                        color: record.eyeContact > 70 ? .cyan : .yellow
-                    )
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Text(record.dateString)
+                            .font(.system(size: 12, weight: .regular))
+                            .foregroundStyle(Color(white: 0.45))
+                        Text(record.durationString)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(Color(white: 0.35))
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 2)
+                            .background(Color.white.opacity(0.07))
+                            .clipShape(Capsule())
+                    }
+
+                    HStack(spacing: 12) {
+                        InsightStatPill(text: "\(record.wpm) WPM", color: .mint)
+                        InsightStatPill(
+                            text: "\(record.fillers) fillers",
+                            color: record.fillers > 5 ? .red : .orange
+                        )
+                        InsightStatPill(
+                            text: "\(record.eyeContact)% eye",
+                            color: record.eyeContact > 70 ? .cyan : .yellow
+                        )
+                    }
+                }
+
+                Spacer()
+
+                // Expand chevron
+                Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Color(white: 0.3))
+            }
+            .padding(14)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                    expanded.toggle()
                 }
             }
 
-            Spacer()
+            // Expanded: compact signature
+            if expanded {
+                Divider()
+                    .background(Color.white.opacity(0.06))
+                    .padding(.horizontal, 14)
 
-            Text(record.scoreBadge)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(record.scoreColor)
-                .padding(.horizontal, 9)
-                .padding(.vertical, 4)
-                .background(record.scoreColor.opacity(0.15))
-                .clipShape(Capsule())
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(record.scoreColor)
+                        Text("Speech Signature")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(Color(white: 0.4))
+                    }
+                    CompactSpeechSignature(data: signatureData)
+                }
+                .padding(14)
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
         }
-        .padding(14)
         .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 14))
         .overlay(
@@ -299,6 +326,8 @@ struct SessionHistoryCard: View {
                 .strokeBorder(Color.white.opacity(0.07), lineWidth: 1)
         )
         .environment(\.colorScheme, .dark)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Session: score \(record.performanceScore), \(record.wpm) WPM, \(record.fillers) fillers, \(record.durationString)")
     }
 }
 
