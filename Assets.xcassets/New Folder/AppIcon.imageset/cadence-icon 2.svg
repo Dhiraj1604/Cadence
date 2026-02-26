@@ -1,0 +1,88 @@
+<svg width="1024" height="1024" viewBox="0 0 240 240" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+
+    <!-- Background gradient: near-black, dark teal tint -->
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%"   stop-color="#071218"/>
+      <stop offset="100%" stop-color="#030c10"/>
+    </linearGradient>
+
+    <!-- Bar gradient: mint → teal fade -->
+    <linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"   stop-color="#3EFFD0"/>
+      <stop offset="100%" stop-color="#1ABFA0" stop-opacity="0.6"/>
+    </linearGradient>
+
+    <!-- Subtle center radial glow -->
+    <radialGradient id="centerGlow" cx="50%" cy="52%" r="44%">
+      <stop offset="0%"   stop-color="#3EFFD0" stop-opacity="0.13"/>
+      <stop offset="100%" stop-color="#3EFFD0" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Glow filter on bars -->
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="2.5" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- iOS squircle clip -->
+    <clipPath id="iconClip">
+      <rect width="240" height="240" rx="54" ry="54"/>
+    </clipPath>
+
+  </defs>
+
+  <g clip-path="url(#iconClip)">
+
+    <!-- Background -->
+    <rect width="240" height="240" fill="url(#bg)"/>
+
+    <!-- Center glow -->
+    <rect width="240" height="240" fill="url(#centerGlow)"/>
+
+    <!-- Subtle dot texture -->
+    <pattern id="dots" x="0" y="0" width="20" height="20" patternUnits="userSpaceOnUse">
+      <circle cx="10" cy="10" r="0.9" fill="#3EFFD0"/>
+    </pattern>
+    <rect width="240" height="240" fill="url(#dots)" opacity="0.055"/>
+
+    <!-- ─── WAVEFORM — 9 bars, bell-curve heights, centered ─── -->
+    <!--
+      Center x = 120
+      Bar width = 9, gap = 8 → pitch = 17
+      Total width = 9×9 + 8×8 = 145  →  start x = 120 - 72 = 48
+      All bars bottom-anchored at y=183 (baseline)
+      Heights: 26 | 46 | 68 | 88 | 100 | 88 | 68 | 46 | 26
+    -->
+    <g filter="url(#glow)">
+      <rect x="47.5"  y="157" width="9" height="26"  rx="4.5" fill="url(#barGrad)" opacity="0.50"/>
+      <rect x="64.5"  y="137" width="9" height="46"  rx="4.5" fill="url(#barGrad)" opacity="0.68"/>
+      <rect x="81.5"  y="115" width="9" height="68"  rx="4.5" fill="url(#barGrad)" opacity="0.82"/>
+      <rect x="98.5"  y="95"  width="9" height="88"  rx="4.5" fill="url(#barGrad)" opacity="0.92"/>
+      <rect x="115.5" y="83"  width="9" height="100" rx="4.5" fill="url(#barGrad)" opacity="1.00"/>
+      <rect x="132.5" y="95"  width="9" height="88"  rx="4.5" fill="url(#barGrad)" opacity="0.92"/>
+      <rect x="149.5" y="115" width="9" height="68"  rx="4.5" fill="url(#barGrad)" opacity="0.82"/>
+      <rect x="166.5" y="137" width="9" height="46"  rx="4.5" fill="url(#barGrad)" opacity="0.68"/>
+      <rect x="183.5" y="157" width="9" height="26"  rx="4.5" fill="url(#barGrad)" opacity="0.50"/>
+    </g>
+
+    <!-- Baseline rule -->
+    <rect x="47" y="183" width="146" height="1.5" rx="0.75" fill="#3EFFD0" opacity="0.18"/>
+
+    <!-- Wordmark -->
+    <text
+      x="120" y="214"
+      text-anchor="middle"
+      font-family="'Helvetica Neue', Helvetica, Arial, sans-serif"
+      font-weight="300"
+      font-size="15"
+      letter-spacing="6"
+      fill="#3EFFD0"
+      opacity="0.60"
+    >CADENCE</text>
+
+  </g>
+</svg>
