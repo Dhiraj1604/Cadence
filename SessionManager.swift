@@ -16,55 +16,72 @@ enum SessionState {
 final class SessionManager: ObservableObject {
     @Published var state: SessionState = .idle
     @Published var duration: TimeInterval = 0
-    
-    // Final Session Statistics
+
+    // Final stats
     @Published var finalWPM: Int = 0
     @Published var finalFillers: Int = 0
     @Published var finalTranscript: String = "No speech was detected during this session."
     @Published var eyeContactPercentage: Int = 0
-    
+
+    // Flow data for SummaryView
+    @Published var finalFlowEvents: [FlowEvent] = []
+    @Published var finalRhythmStability: Double = 100
+    @Published var finalAttentionScore: Double = 100
+
     private var timerTask: Task<Void, Never>?
-    
+
     func startSession() {
         duration = 0
         state = .practicing
         timerTask?.cancel()
-        
-        // Count up normally, let the user stop it when they are done
+
         timerTask = Task {
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
                 duration += 1
             }
         }
     }
-    
-    func endSession(wpm: Int, fillers: Int, transcript: String, eyeContactDuration: TimeInterval) {
+
+    func endSession(
+        wpm: Int,
+        fillers: Int,
+        transcript: String,
+        eyeContactDuration: TimeInterval,
+        flowEvents: [FlowEvent],
+        rhythmStability: Double,
+        attentionScore: Double
+    ) {
         timerTask?.cancel()
-        
-        self.finalWPM = wpm
-        self.finalFillers = fillers
-        
+
+        finalWPM = wpm
+        finalFillers = fillers
+        finalFlowEvents = flowEvents
+        finalRhythmStability = rhythmStability
+        finalAttentionScore = attentionScore
+
         if !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            self.finalTranscript = transcript
+            finalTranscript = transcript
         }
-        
-        // Calculate Eye Contact %
+
         if duration > 0 {
-            self.eyeContactPercentage = min(100, Int((eyeContactDuration / duration) * 100))
+            eyeContactPercentage = min(100, Int((eyeContactDuration / duration) * 100))
         } else {
-            self.eyeContactPercentage = 0
+            eyeContactPercentage = 0
         }
-        
+
         state = .summary
     }
-    
+
     func resetSession() {
         timerTask?.cancel()
         duration = 0
         finalWPM = 0
         finalFillers = 0
         eyeContactPercentage = 0
+        finalFlowEvents = []
+        finalRhythmStability = 100
+        finalAttentionScore = 100
         finalTranscript = "No speech was detected during this session."
         state = .idle
     }
