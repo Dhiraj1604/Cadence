@@ -5,9 +5,10 @@
 //  Created by Dhiraj on 26/02/26.
 //
 
-// InsightsView.swift
-// Cadence — SSC Edition
-// Tab 4: Progress Dashboard
+/// InsightsView.swift
+// Cadence — iOS 26 Native
+// FIXED: Removed NavigationView (deprecated in iOS 16+) - use NavigationStack
+// SF Pro fonts, SF Symbols, Liquid Glass material
 
 import SwiftUI
 
@@ -15,7 +16,7 @@ struct InsightsView: View {
     @EnvironmentObject var session: SessionManager
 
     var body: some View {
-        NavigationView {
+        NavigationStack {
             ZStack {
                 LinearGradient(
                     colors: [Color(red: 0.03, green: 0.06, blue: 0.05), .black],
@@ -53,17 +54,17 @@ struct InsightsView: View {
                             .padding(.horizontal, 20)
                             .padding(.top, 8)
 
-                            // ── WPM Trend ───────────────────────────
+                            // ── WPM Trend ─────────────────────────
                             if session.sessionHistory.count >= 2 {
                                 WPMTrendCard(history: session.sessionHistory)
                                     .padding(.horizontal, 20)
                             }
 
-                            // ── Session History ─────────────────────
+                            // ── Session History ───────────────────
                             VStack(alignment: .leading, spacing: 10) {
                                 Text("Recent Sessions")
                                     .font(.system(size: 17, weight: .semibold))
-                                    .foregroundColor(.white)
+                                    .foregroundStyle(.white)
                                     .padding(.horizontal, 20)
 
                                 ForEach(session.sessionHistory) { record in
@@ -79,8 +80,9 @@ struct InsightsView: View {
             }
             .navigationTitle("Progress")
             .navigationBarTitleDisplayMode(.large)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         }
-        .navigationViewStyle(.stack)
     }
 
     private func totalTimeLabel(_ t: TimeInterval) -> String {
@@ -95,24 +97,32 @@ struct InsightsView: View {
 struct EmptyProgressView: View {
     var body: some View {
         VStack(spacing: 20) {
-            Image(systemName: "chart.line.uptrend.xyaxis")
-                .font(.system(size: 52, weight: .thin))
-                .foregroundColor(Color(white: 0.25))
+            ZStack {
+                Circle()
+                    .fill(Color(white: 0.1))
+                    .frame(width: 90, height: 90)
+                Image(systemName: "chart.line.uptrend.xyaxis")
+                    .font(.system(size: 36, weight: .thin))
+                    .foregroundStyle(Color(white: 0.3))
+                    .symbolRenderingMode(.hierarchical)
+            }
+
             VStack(spacing: 8) {
                 Text("No sessions yet")
                     .font(.system(size: 20, weight: .semibold))
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
                 Text("Complete your first practice session\nto see your progress here.")
-                    .font(.system(size: 14))
-                    .foregroundColor(Color(white: 0.45))
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(Color(white: 0.45))
                     .multilineTextAlignment(.center)
                     .lineSpacing(4)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
-// MARK: - Stat Card
+// MARK: - Stat Card (Liquid Glass)
 struct ProgressStatCard: View {
     let value: String
     let label: String
@@ -123,20 +133,26 @@ struct ProgressStatCard: View {
         VStack(alignment: .leading, spacing: 8) {
             Image(systemName: icon)
                 .font(.system(size: 13, weight: .medium))
-                .foregroundColor(color.opacity(0.8))
+                .foregroundStyle(color.opacity(0.9))
+                .symbolRenderingMode(.hierarchical)
             Text(value)
                 .font(.system(size: 26, weight: .bold, design: .rounded))
-                .foregroundColor(color)
+                .foregroundStyle(color)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
             Text(label)
-                .font(.system(size: 11))
-                .foregroundColor(Color(white: 0.38))
+                .font(.system(size: 11, weight: .regular))
+                .foregroundStyle(Color(white: 0.38))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
-        .background(Color.white.opacity(0.06))
-        .cornerRadius(14)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .strokeBorder(color.opacity(0.15), lineWidth: 1)
+        )
+        .environment(\.colorScheme, .dark)
     }
 }
 
@@ -144,7 +160,6 @@ struct ProgressStatCard: View {
 struct WPMTrendCard: View {
     let history: [SessionRecord]
 
-    // oldest → newest (left → right)
     private var wpmValues: [Int] {
         history.reversed().map { $0.wpm }
     }
@@ -155,20 +170,20 @@ struct WPMTrendCard: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("WPM Trend")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(.white)
+                        .foregroundStyle(.white)
                     Text("Your pace over time")
-                        .font(.system(size: 11))
-                        .foregroundColor(Color(white: 0.38))
+                        .font(.system(size: 11, weight: .regular))
+                        .foregroundStyle(Color(white: 0.38))
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 2) {
                     let best = wpmValues.max() ?? 0
                     Text("Best: \(best)")
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(.mint)
+                        .foregroundStyle(.mint)
                     Text("Ideal: 130–150")
-                        .font(.system(size: 10))
-                        .foregroundColor(Color(white: 0.3))
+                        .font(.system(size: 10, weight: .regular))
+                        .foregroundStyle(Color(white: 0.3))
                 }
             }
 
@@ -180,15 +195,13 @@ struct WPMTrendCard: View {
                 let h = geo.size.height
 
                 ZStack(alignment: .topLeading) {
-                    // Ideal zone band
                     let idealTop = h - h * CGFloat(160 - minVal) / CGFloat(range)
                     let idealHeight = h * CGFloat(40) / CGFloat(range)
                     Rectangle()
-                        .fill(Color.mint.opacity(0.06))
+                        .fill(Color.mint.opacity(0.07))
                         .frame(width: w, height: max(idealHeight, 0))
                         .offset(y: max(idealTop, 0))
 
-                    // Sparkline
                     if wpmValues.count >= 2 {
                         Path { path in
                             for (i, val) in wpmValues.enumerated() {
@@ -198,13 +211,13 @@ struct WPMTrendCard: View {
                                 else { path.addLine(to: CGPoint(x: x, y: y)) }
                             }
                         }
-                        .stroke(Color.mint, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                        .stroke(.mint, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
 
                         ForEach(wpmValues.indices, id: \.self) { i in
                             let x = w * CGFloat(i) / CGFloat(wpmValues.count - 1)
                             let y = h - h * CGFloat(wpmValues[i] - minVal) / CGFloat(range)
                             Circle()
-                                .fill(Color.mint)
+                                .fill(.mint)
                                 .frame(width: 6, height: 6)
                                 .position(x: x, y: y)
                         }
@@ -214,8 +227,9 @@ struct WPMTrendCard: View {
             .frame(height: 72)
         }
         .padding(16)
-        .background(Color.white.opacity(0.06))
-        .cornerRadius(16)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .environment(\.colorScheme, .dark)
     }
 }
 
@@ -237,21 +251,21 @@ struct SessionHistoryCard: View {
                     .rotationEffect(.degrees(-90))
                 Text("\(record.performanceScore)")
                     .font(.system(size: 13, weight: .bold))
-                    .foregroundColor(record.scoreColor)
+                    .foregroundStyle(record.scoreColor)
             }
 
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 8) {
                     Text(record.dateString)
-                        .font(.system(size: 12))
-                        .foregroundColor(Color(white: 0.45))
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundStyle(Color(white: 0.45))
                     Text(record.durationString)
                         .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(Color(white: 0.35))
+                        .foregroundStyle(Color(white: 0.35))
                         .padding(.horizontal, 7)
                         .padding(.vertical, 2)
-                        .background(Color.white.opacity(0.06))
-                        .cornerRadius(6)
+                        .background(Color.white.opacity(0.07))
+                        .clipShape(Capsule())
                 }
 
                 HStack(spacing: 12) {
@@ -271,19 +285,20 @@ struct SessionHistoryCard: View {
 
             Text(record.scoreBadge)
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundColor(record.scoreColor)
+                .foregroundStyle(record.scoreColor)
                 .padding(.horizontal, 9)
                 .padding(.vertical, 4)
                 .background(record.scoreColor.opacity(0.15))
-                .cornerRadius(12)
+                .clipShape(Capsule())
         }
         .padding(14)
-        .background(Color.white.opacity(0.05))
-        .cornerRadius(14)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 14))
         .overlay(
             RoundedRectangle(cornerRadius: 14)
-                .stroke(Color.white.opacity(0.06), lineWidth: 1)
+                .strokeBorder(Color.white.opacity(0.07), lineWidth: 1)
         )
+        .environment(\.colorScheme, .dark)
     }
 }
 
@@ -294,6 +309,6 @@ struct InsightStatPill: View {
     var body: some View {
         Text(text)
             .font(.system(size: 11, weight: .medium))
-            .foregroundColor(color)
+            .foregroundStyle(color)
     }
 }

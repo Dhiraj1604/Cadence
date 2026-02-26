@@ -1,16 +1,10 @@
 //
 //  ReadPracticeView.swift
 //  Cadence
-//
-//  Created by Dhiraj on 26/02/26.
-//
 // ReadPracticeView.swift
-// Cadence — SSC Edition
-// ★ FLAGSHIP INNOVATION: Read & Analyze
-//
-// User picks a paragraph → reads aloud → each word lights up in real time
-// as the speech engine recognizes it. Post-read: accuracy %, WPM, stumble map.
-// This is the "aha moment" — a reading coach that follows every word.
+// Cadence — iOS 26 Native Redesign
+// ★ FLAGSHIP: Read & Analyze — word-by-word live tracking
+// Completely redesigned for readability with clean card system
 
 import SwiftUI
 import Speech
@@ -21,18 +15,18 @@ import AVFoundation
 // ─────────────────────────────────────────────────────────────
 
 enum WordState {
-    case pending        // Not yet reached — dimmed white
-    case active         // Current expected word — pulsing highlight
-    case correct        // Said correctly — mint green
-    case stumbled       // Said but hesitated on — orange
-    case skipped        // Not said — red (post-session only)
+    case pending
+    case active
+    case correct
+    case stumbled
+    case skipped
 }
 
 struct ReadWord: Identifiable {
     let id = UUID()
-    let text: String                // Original word
+    let text: String
     var state: WordState = .pending
-    var recognizedAs: String? = nil // What the mic heard
+    var recognizedAs: String? = nil
 }
 
 struct ReadingPrompt: Identifiable {
@@ -42,7 +36,7 @@ struct ReadingPrompt: Identifiable {
     let categoryIcon: String
     let categoryColor: Color
     let text: String
-    let difficulty: Int             // 1–3
+    let difficulty: Int
 
     var wordCount: Int {
         text.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }.count
@@ -106,7 +100,7 @@ struct ReadingPrompt: Identifiable {
             difficulty: 1
         ),
         ReadingPrompt(
-            title: "Artificial Intelligence Today",
+            title: "Artificial Intelligence",
             category: "Technology",
             categoryIcon: "cpu.fill",
             categoryColor: .mint,
@@ -116,13 +110,12 @@ struct ReadingPrompt: Identifiable {
     ]
 }
 
-// Analysis result returned after a reading session
 struct ReadingAnalysis {
     let prompt: ReadingPrompt
     let words: [ReadWord]
     let duration: TimeInterval
     let wpm: Int
-    let accuracy: Double              // 0–100
+    let accuracy: Double
     let stumbledWords: [String]
     let skippedWords: [String]
     let fillerCount: Int
@@ -156,12 +149,11 @@ struct ReadingAnalysis {
 }
 
 // ─────────────────────────────────────────────────────────────
-// MARK: - Reading Engine
+// MARK: - Reading Engine (unchanged logic, same as before)
 // ─────────────────────────────────────────────────────────────
 
 @MainActor
 class ReadingEngine: ObservableObject {
-
     @Published var phase: Phase = .idle
     @Published var words: [ReadWord] = []
     @Published var currentIndex: Int = 0
@@ -172,15 +164,12 @@ class ReadingEngine: ObservableObject {
     @Published var analysis: ReadingAnalysis? = nil
 
     enum Phase: Equatable {
-        case idle
-        case countdown
-        case reading
-        case finished
+        case idle, countdown, reading, finished
     }
 
     private var prompt: ReadingPrompt?
-    private var sourceWords: [String] = []      // lowercased, stripped
-    private var recognizedBuffer: [String] = [] // running list of all recognized words
+    private var sourceWords: [String] = []
+    private var recognizedBuffer: [String] = []
 
     private let speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
     private let audioEngine = AVAudioEngine()
@@ -192,8 +181,6 @@ class ReadingEngine: ObservableObject {
     private var countdownTask: Task<Void, Never>?
 
     private let fillerWords: Set<String> = ["um", "uh", "like", "so", "basically"]
-
-    // ── Public API ────────────────────────────────────────────
 
     func load(_ prompt: ReadingPrompt) {
         self.prompt = prompt
@@ -230,26 +217,18 @@ class ReadingEngine: ObservableObject {
         }
     }
 
-    func stopEarly() {
-        finishSession()
-    }
-
-    // ── Private: Recording ────────────────────────────────────
+    func stopEarly() { finishSession() }
 
     private func startReading() async {
         phase = .reading
         startDate = Date()
         elapsedTime = 0
-
-        // Timer
         timerTask = Task {
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 200_000_000)   // 0.2s tick for smooth counter
+                try? await Task.sleep(nanoseconds: 200_000_000)
                 elapsedTime = Date().timeIntervalSince(startDate ?? Date())
             }
         }
-
-        // Speech
         await requestAndStartSpeech()
     }
 
@@ -275,7 +254,6 @@ class ReadingEngine: ObservableObject {
                     self.processRecognition(result.bestTranscription.formattedString)
                 }
                 if error != nil || (result?.isFinal ?? false) {
-                    // Auto-stop when speech engine finalizes
                     if self.phase == .reading { self.finishSession() }
                 }
             }
@@ -293,57 +271,34 @@ class ReadingEngine: ObservableObject {
         try? audioEngine.start()
     }
 
-    // ── Core Algorithm: Real-time word matching ───────────────
-    //
-    // As speech recognition returns partial text we:
-    // 1. Split into words, strip punctuation
-    // 2. Greedily advance through sourceWords matching recognized words
-    // 3. Mark matched words as .correct; if a word doesn't match,
-    //    mark it .stumbled and still advance (we don't freeze on misreads)
-    //
-    // The "active" badge follows currentIndex so the user can see
-    // exactly where the engine thinks they are.
-
     private func processRecognition(_ fullText: String) {
         liveTranscript = fullText
-
-        let spoken = fullText
-            .lowercased()
+        let spoken = fullText.lowercased()
             .components(separatedBy: .whitespacesAndNewlines)
             .filter { !$0.isEmpty }
             .map { $0.trimmingCharacters(in: .punctuationCharacters) }
 
         fillerCount = spoken.filter { fillerWords.contains($0) }.count
 
-        // How many source words have already been confidently matched?
         let alreadyMatched = words.filter { $0.state == .correct || $0.state == .stumbled }.count
-
-        // We only process NEW spoken words past what we've already handled
         guard spoken.count > alreadyMatched else { return }
         let newSpoken = Array(spoken.suffix(spoken.count - alreadyMatched))
-
-        var sourceIdx = alreadyMatched   // where to look in sourceWords
+        var sourceIdx = alreadyMatched
 
         for spokenWord in newSpoken {
             guard sourceIdx < sourceWords.count else { break }
-
-            // Try exact match first
             if normalize(spokenWord) == normalize(sourceWords[sourceIdx]) {
                 words[sourceIdx].state = .correct
                 words[sourceIdx].recognizedAs = spokenWord
                 sourceIdx += 1
             } else {
-                // Look ahead up to 2 words to handle minor recognition mismatches
                 var matched = false
                 for lookahead in 1...2 {
                     let ahead = sourceIdx + lookahead
                     guard ahead < sourceWords.count else { break }
                     if normalize(spokenWord) == normalize(sourceWords[ahead]) {
-                        // Mark skipped words as stumbled
                         for skipped in sourceIdx..<ahead {
-                            if words[skipped].state == .pending {
-                                words[skipped].state = .stumbled
-                            }
+                            if words[skipped].state == .pending { words[skipped].state = .stumbled }
                         }
                         words[ahead].state = .correct
                         words[ahead].recognizedAs = spokenWord
@@ -353,7 +308,6 @@ class ReadingEngine: ObservableObject {
                     }
                 }
                 if !matched {
-                    // Word not found nearby — mark current as stumbled and move on
                     words[sourceIdx].state = .stumbled
                     words[sourceIdx].recognizedAs = spokenWord
                     sourceIdx += 1
@@ -362,14 +316,12 @@ class ReadingEngine: ObservableObject {
         }
 
         currentIndex = sourceIdx
-        // Mark next pending word as active
         if currentIndex < words.count {
             for i in currentIndex..<words.count {
                 if words[i].state == .pending { words[i].state = .active; break }
             }
         }
 
-        // Auto-finish when all words are accounted for
         if sourceIdx >= sourceWords.count - 1 {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
                 if self?.phase == .reading { self?.finishSession() }
@@ -385,8 +337,6 @@ class ReadingEngine: ObservableObject {
 
     private func finishSession() {
         guard phase == .reading, let prompt = prompt, let start = startDate else { return }
-
-        // Stop audio
         if audioEngine.isRunning {
             audioEngine.inputNode.removeTap(onBus: 0)
             audioEngine.stop()
@@ -396,11 +346,8 @@ class ReadingEngine: ObservableObject {
         timerTask?.cancel()
         try? AVAudioSession.sharedInstance().setActive(false)
 
-        // Mark any remaining pending words as skipped
         for i in 0..<words.count {
-            if words[i].state == .pending || words[i].state == .active {
-                words[i].state = .skipped
-            }
+            if words[i].state == .pending || words[i].state == .active { words[i].state = .skipped }
         }
 
         let duration = Date().timeIntervalSince(start)
@@ -413,16 +360,10 @@ class ReadingEngine: ObservableObject {
         let skipped = words.filter { $0.state == .skipped }.map { $0.text }
 
         analysis = ReadingAnalysis(
-            prompt: prompt,
-            words: words,
-            duration: duration,
-            wpm: wpm,
-            accuracy: accuracy,
-            stumbledWords: stumbled,
-            skippedWords: skipped,
-            fillerCount: fillerCount
+            prompt: prompt, words: words, duration: duration,
+            wpm: wpm, accuracy: accuracy, stumbledWords: stumbled,
+            skippedWords: skipped, fillerCount: fillerCount
         )
-
         phase = .finished
     }
 
@@ -448,20 +389,18 @@ class ReadingEngine: ObservableObject {
 struct ReadPracticeView: View {
     @StateObject private var engine = ReadingEngine()
     @State private var selectedPrompt: ReadingPrompt? = nil
-    @State private var showPromptPicker = false
 
     var body: some View {
         ZStack {
-            // Background
             LinearGradient(
-                colors: [Color(red: 0.03, green: 0.06, blue: 0.07), Color.black],
+                colors: [Color(red: 0.03, green: 0.06, blue: 0.07), .black],
                 startPoint: .top, endPoint: .bottom
             )
             .ignoresSafeArea()
 
             switch engine.phase {
             case .idle:
-                PromptSelectionView(
+                ReadPromptSelectionView(
                     selectedPrompt: selectedPrompt,
                     onSelect: { p in
                         selectedPrompt = p
@@ -472,7 +411,7 @@ struct ReadPracticeView: View {
                 .transition(.opacity)
 
             case .countdown:
-                CountdownView(count: engine.countdown)
+                ReadCountdownView(count: engine.countdown)
                     .transition(.scale.combined(with: .opacity))
 
             case .reading:
@@ -481,10 +420,8 @@ struct ReadPracticeView: View {
 
             case .finished:
                 if let analysis = engine.analysis {
-                    ReadingResultsView(analysis: analysis) {
-                        engine.reset()
-                    }
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    ReadingResultsView(analysis: analysis) { engine.reset() }
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
         }
@@ -493,62 +430,66 @@ struct ReadPracticeView: View {
 }
 
 // ─────────────────────────────────────────────────────────────
-// MARK: - Prompt Selection Screen
+// MARK: - Prompt Selection (Clean iOS 26 Card Design)
 // ─────────────────────────────────────────────────────────────
 
-struct PromptSelectionView: View {
+struct ReadPromptSelectionView: View {
     let selectedPrompt: ReadingPrompt?
     let onSelect: (ReadingPrompt) -> Void
     let onStart: () -> Void
-
-    @State private var scrollOffset: CGFloat = 0
 
     var body: some View {
         VStack(spacing: 0) {
 
             // ── Hero Header ──────────────────────────────────
-            VStack(spacing: 8) {
-                HStack(spacing: 10) {
+            VStack(spacing: 16) {
+                // Icon + title
+                HStack(spacing: 14) {
                     ZStack {
-                        Circle()
-                            .fill(Color.cyan.opacity(0.15))
-                            .frame(width: 44, height: 44)
+                        RoundedRectangle(cornerRadius: 14)
+                            .fill(.cyan.opacity(0.15))
+                            .frame(width: 52, height: 52)
                         Image(systemName: "doc.text.magnifyingglass")
-                            .font(.system(size: 20, weight: .medium))
-                            .foregroundColor(.cyan)
+                            .font(.system(size: 22, weight: .medium))
+                            .foregroundStyle(.cyan)
+                            .symbolRenderingMode(.hierarchical)
                     }
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: 4) {
                         Text("Read & Analyze")
-                            .font(.system(size: 22, weight: .bold))
-                            .foregroundColor(.white)
-                        Text("Read aloud. Watch every word light up.")
-                            .font(.system(size: 12))
-                            .foregroundColor(Color(white: 0.45))
+                            .font(.system(size: 24, weight: .bold))
+                            .foregroundStyle(.white)
+                        Text("Read aloud — watch every word light up")
+                            .font(.system(size: 13, weight: .regular))
+                            .foregroundStyle(Color(white: 0.48))
                     }
                     Spacer()
                 }
 
-                // How it works — 3 micro-steps
-                HStack(spacing: 0) {
-                    ForEach(Array(steps.enumerated()), id: \.0) { i, step in
+                // How-it-works pills
+                HStack(spacing: 10) {
+                    ForEach(Array(howItWorks.enumerated()), id: \.0) { i, step in
                         HStack(spacing: 6) {
                             ZStack {
                                 Circle()
-                                    .fill(step.color.opacity(0.15))
-                                    .frame(width: 28, height: 28)
-                                Text("\(i+1)")
+                                    .fill(step.color.opacity(0.18))
+                                    .frame(width: 24, height: 24)
+                                Text("\(i + 1)")
                                     .font(.system(size: 11, weight: .bold))
-                                    .foregroundColor(step.color)
+                                    .foregroundStyle(step.color)
                             }
-                            Text(step.text)
-                                .font(.system(size: 11))
-                                .foregroundColor(Color(white: 0.5))
+                            Text(step.label)
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(Color(white: 0.55))
                         }
-                        if i < steps.count - 1 {
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 9))
-                                .foregroundColor(Color(white: 0.2))
-                                .padding(.horizontal, 8)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .background(step.color.opacity(0.07))
+                        .clipShape(Capsule())
+
+                        if i < howItWorks.count - 1 {
+                            Image(systemName: "arrow.right")
+                                .font(.system(size: 10))
+                                .foregroundStyle(Color(white: 0.22))
                         }
                     }
                     Spacer()
@@ -556,86 +497,98 @@ struct PromptSelectionView: View {
             }
             .padding(.horizontal, 20)
             .padding(.top, 16)
-            .padding(.bottom, 14)
+            .padding(.bottom, 16)
 
-            Divider().background(Color.white.opacity(0.07))
+            Divider()
+                .background(Color.white.opacity(0.08))
 
-            // ── Prompt Cards ─────────────────────────────────
+            // ── Passage List ─────────────────────────────────
             ScrollView(showsIndicators: false) {
-                VStack(spacing: 10) {
-                    Text("CHOOSE YOUR PASSAGE")
-                        .font(.system(size: 10, weight: .black))
-                        .foregroundColor(Color(white: 0.32))
-                        .tracking(2)
+                LazyVStack(spacing: 0) {
+                    // Section header
+                    Text("Choose a Passage")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color(white: 0.4))
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 20)
                         .padding(.top, 16)
+                        .padding(.bottom, 10)
 
+                    // Cards
                     ForEach(ReadingPrompt.library) { prompt in
-                        PromptCard(
+                        ReadPromptCard(
                             prompt: prompt,
                             isSelected: selectedPrompt?.id == prompt.id,
                             onTap: { onSelect(prompt) }
                         )
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 10)
                     }
 
-                    Spacer(minLength: 110)
+                    Spacer(minLength: 120)
                 }
-                .padding(.horizontal, 20)
             }
         }
         .overlay(alignment: .bottom) {
-            // ── Start Button ─────────────────────────────────
+            // ── Sticky Start Button ──────────────────────────
             VStack(spacing: 0) {
-                LinearGradient(colors: [.clear, .black.opacity(0.95)], startPoint: .top, endPoint: .bottom)
-                    .frame(height: 30)
+                LinearGradient(
+                    colors: [.clear, .black.opacity(0.92)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: 36)
 
                 Button(action: onStart) {
                     HStack(spacing: 10) {
-                        Image(systemName: "mic.fill")
-                            .font(.system(size: 15, weight: .bold))
-                        Text(selectedPrompt == nil ? "Pick a passage above" : "Start Reading")
+                        Image(systemName: selectedPrompt == nil ? "text.cursor" : "mic.fill")
+                            .font(.system(size: 15, weight: .semibold))
+                        Text(selectedPrompt == nil ? "Choose a passage above" : "Start Reading")
                             .font(.system(size: 17, weight: .semibold))
                     }
-                    .foregroundColor(selectedPrompt == nil ? Color(white: 0.4) : .black)
+                    .foregroundStyle(selectedPrompt == nil ? Color(white: 0.4) : .black)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 17)
                     .background(
                         selectedPrompt == nil
                             ? AnyShapeStyle(Color.white.opacity(0.08))
                             : AnyShapeStyle(LinearGradient(
-                                colors: [.cyan, Color(red: 0.1, green: 0.8, blue: 0.85)],
+                                colors: [.cyan, Color(red: 0.1, green: 0.82, blue: 0.88)],
                                 startPoint: .topLeading, endPoint: .bottomTrailing
                             ))
                     )
-                    .cornerRadius(16)
-                    .shadow(color: selectedPrompt != nil ? Color.cyan.opacity(0.35) : .clear, radius: 18, y: 6)
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .shadow(
+                        color: selectedPrompt != nil ? Color.cyan.opacity(0.38) : .clear,
+                        radius: 18, y: 6
+                    )
                 }
                 .disabled(selectedPrompt == nil)
-                .animation(.easeInOut(duration: 0.25), value: selectedPrompt?.id)
+                .animation(.easeInOut(duration: 0.22), value: selectedPrompt?.id)
                 .padding(.horizontal, 20)
-                .padding(.bottom, 34)
-                .background(Color.black.opacity(0.95))
+                .padding(.bottom, 12)
+                .background(.black.opacity(0.92))
             }
         }
     }
 
-    private let steps = [
-        (text: "Pick passage", color: Color.cyan),
-        (text: "Read aloud", color: Color.mint),
-        (text: "See analysis", color: Color.purple),
+    private let howItWorks = [
+        (label: "Pick passage", color: Color.cyan),
+        (label: "Read aloud",   color: Color.mint),
+        (label: "See results",  color: Color.purple),
     ]
 }
 
 // ─────────────────────────────────────────────────────────────
-// MARK: - Prompt Card
+// MARK: - Prompt Card (Clean, Readable, iOS 26)
 // ─────────────────────────────────────────────────────────────
 
-struct PromptCard: View {
+struct ReadPromptCard: View {
     let prompt: ReadingPrompt
     let isSelected: Bool
     let onTap: () -> Void
 
-    private var difficultyText: String {
+    private var difficultyLabel: String {
         ["Easy", "Medium", "Advanced"][prompt.difficulty - 1]
     }
     private var difficultyColor: Color {
@@ -644,67 +597,79 @@ struct PromptCard: View {
 
     var body: some View {
         Button(action: onTap) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 10) {
-                    // Category icon
+            VStack(alignment: .leading, spacing: 0) {
+                // Top row — icon, title, badge
+                HStack(spacing: 12) {
                     ZStack {
-                        RoundedRectangle(cornerRadius: 9)
+                        RoundedRectangle(cornerRadius: 10)
                             .fill(prompt.categoryColor.opacity(0.15))
-                            .frame(width: 36, height: 36)
+                            .frame(width: 40, height: 40)
                         Image(systemName: prompt.categoryIcon)
-                            .font(.system(size: 15, weight: .medium))
-                            .foregroundColor(prompt.categoryColor)
+                            .font(.system(size: 17, weight: .medium))
+                            .foregroundStyle(prompt.categoryColor)
+                            .symbolRenderingMode(.hierarchical)
                     }
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(prompt.title)
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundColor(.white)
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
                         Text(prompt.category)
-                            .font(.system(size: 11))
-                            .foregroundColor(prompt.categoryColor.opacity(0.75))
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(prompt.categoryColor.opacity(0.8))
                     }
 
                     Spacer()
 
                     VStack(alignment: .trailing, spacing: 4) {
-                        Text(difficultyText)
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundColor(difficultyColor)
-                            .padding(.horizontal, 8)
+                        Text(difficultyLabel)
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(difficultyColor)
+                            .padding(.horizontal, 9)
                             .padding(.vertical, 3)
-                            .background(difficultyColor.opacity(0.15))
-                            .cornerRadius(6)
-                        Text("\(prompt.wordCount)w")
-                            .font(.system(size: 10))
-                            .foregroundColor(Color(white: 0.3))
+                            .background(difficultyColor.opacity(0.14))
+                            .clipShape(Capsule())
+
+                        HStack(spacing: 3) {
+                            Image(systemName: "text.word.spacing")
+                                .font(.system(size: 9))
+                                .foregroundStyle(Color(white: 0.32))
+                            Text("\(prompt.wordCount)w")
+                                .font(.system(size: 11, weight: .regular))
+                                .foregroundStyle(Color(white: 0.32))
+                        }
                     }
                 }
+                .padding(14)
 
-                // Preview — first ~80 chars
-                Text(prompt.text.prefix(90) + "…")
-                    .font(.system(size: 12))
-                    .foregroundColor(Color(white: 0.42))
-                    .lineSpacing(3)
-                    .lineLimit(2)
+                // Divider
+                Divider()
+                    .background(Color.white.opacity(isSelected ? 0.12 : 0.06))
+                    .padding(.horizontal, 14)
+
+                // Preview text — clearly legible
+                Text(String(prompt.text.prefix(110)) + "…")
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundStyle(Color(white: isSelected ? 0.7 : 0.5))
+                    .lineSpacing(4)
+                    .lineLimit(3)
+                    .padding(14)
             }
-            .padding(14)
             .background(
-                isSelected
-                    ? prompt.categoryColor.opacity(0.1)
-                    : Color.white.opacity(0.05)
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(isSelected ? prompt.categoryColor.opacity(0.10) : Color.white.opacity(0.05))
             )
-            .cornerRadius(14)
             .overlay(
-                RoundedRectangle(cornerRadius: 14)
-                    .stroke(
-                        isSelected ? prompt.categoryColor.opacity(0.5) : Color.white.opacity(0.07),
+                RoundedRectangle(cornerRadius: 16)
+                    .strokeBorder(
+                        isSelected ? prompt.categoryColor.opacity(0.5) : Color.white.opacity(0.08),
                         lineWidth: isSelected ? 1.5 : 1
                     )
             )
         }
         .buttonStyle(PlainButtonStyle())
-        .animation(.easeInOut(duration: 0.2), value: isSelected)
+        .animation(.easeInOut(duration: 0.18), value: isSelected)
     }
 }
 
@@ -712,7 +677,7 @@ struct PromptCard: View {
 // MARK: - Countdown View
 // ─────────────────────────────────────────────────────────────
 
-struct CountdownView: View {
+struct ReadCountdownView: View {
     let count: Int
     @State private var scale: CGFloat = 0.4
     @State private var opacity: Double = 0
@@ -720,15 +685,15 @@ struct CountdownView: View {
     var body: some View {
         VStack(spacing: 20) {
             Text("\(count)")
-                .font(.system(size: 120, weight: .black, design: .rounded))
+                .font(.system(size: 110, weight: .black, design: .rounded))
                 .foregroundStyle(
                     LinearGradient(colors: [.cyan, .mint], startPoint: .top, endPoint: .bottom)
                 )
                 .scaleEffect(scale)
                 .opacity(opacity)
             Text("Get ready to read…")
-                .font(.system(size: 16))
-                .foregroundColor(Color(white: 0.5))
+                .font(.system(size: 16, weight: .regular))
+                .foregroundStyle(Color(white: 0.5))
         }
         .onAppear {
             withAnimation(.spring(response: 0.4, dampingFraction: 0.6)) {
@@ -750,9 +715,7 @@ struct CountdownView: View {
 
 struct ReadingSessionView: View {
     @ObservedObject var engine: ReadingEngine
-    @State private var showStopConfirm = false
 
-    // Progress 0→1
     private var progress: Double {
         let done = engine.words.filter { $0.state == .correct || $0.state == .stumbled }.count
         return Double(done) / Double(max(engine.words.count, 1))
@@ -760,41 +723,39 @@ struct ReadingSessionView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-
-            // ── Top bar ──────────────────────────────────────
+            // ── Header ───────────────────────────────────────
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Reading")
                         .font(.system(size: 20, weight: .bold))
-                        .foregroundColor(.white)
+                        .foregroundStyle(.white)
                     Text(String(format: "%.0f%% complete", progress * 100))
-                        .font(.system(size: 12))
-                        .foregroundColor(Color(white: 0.45))
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundStyle(Color(white: 0.45))
                 }
                 Spacer()
                 HStack(spacing: 12) {
-                    // Timer
                     Text(timeStr(engine.elapsedTime))
                         .font(.system(size: 18, design: .monospaced).bold())
-                        .foregroundColor(.cyan)
-                    // Stop
-                    Button {
-                        engine.stopEarly()
-                    } label: {
+                        .foregroundStyle(.cyan)
+                    Button { engine.stopEarly() } label: {
                         Image(systemName: "xmark.circle.fill")
                             .font(.system(size: 24))
-                            .foregroundColor(Color(white: 0.35))
+                            .foregroundStyle(Color(white: 0.35))
+                            .symbolRenderingMode(.hierarchical)
                     }
                 }
             }
             .padding(.horizontal, 20)
             .padding(.top, 52)
-            .padding(.bottom, 10)
+            .padding(.bottom, 12)
 
-            // ── Progress bar ─────────────────────────────────
+            // ── Progress Bar ─────────────────────────────────
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
-                    Capsule().fill(Color.white.opacity(0.07)).frame(height: 4)
+                    Capsule()
+                        .fill(Color.white.opacity(0.08))
+                        .frame(height: 4)
                     Capsule()
                         .fill(LinearGradient(colors: [.cyan, .mint], startPoint: .leading, endPoint: .trailing))
                         .frame(width: geo.size.width * CGFloat(progress), height: 4)
@@ -803,72 +764,66 @@ struct ReadingSessionView: View {
             }
             .frame(height: 4)
             .padding(.horizontal, 20)
-            .padding(.bottom, 14)
+            .padding(.bottom, 18)
 
-            // ── Word Flow — the heart of the feature ─────────
+            // ── Word Flow ────────────────────────────────────
             ScrollView(showsIndicators: false) {
-                WordFlowView(words: engine.words)
+                ReadWordFlowView(words: engine.words)
                     .padding(.horizontal, 20)
                     .padding(.bottom, 16)
             }
 
             Spacer()
 
-            // ── Live mic transcript ──────────────────────────
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 6) {
-                    Circle().fill(Color.red).frame(width: 7, height: 7)
-                        .opacity(0.7)
-                    Text("LIVE TRANSCRIPT")
-                        .font(.system(size: 9, weight: .black))
-                        .foregroundColor(Color(white: 0.35))
-                        .tracking(1.5)
-                }
-                Text(engine.liveTranscript.isEmpty ? "Listening…" : engine.liveTranscript)
-                    .font(.system(size: 13))
-                    .foregroundColor(Color(white: 0.55))
+            // ── Live Transcript ──────────────────────────────
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(.red)
+                    .frame(width: 7, height: 7)
+                Text(engine.liveTranscript.isEmpty ? "Listening for your voice…" : engine.liveTranscript)
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundStyle(Color(white: 0.55))
                     .lineLimit(2)
                     .animation(.easeInOut(duration: 0.2), value: engine.liveTranscript)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(14)
-            .background(Color.white.opacity(0.04))
-            .cornerRadius(12)
+            .background(.ultraThinMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .environment(\.colorScheme, .dark)
             .padding(.horizontal, 20)
             .padding(.bottom, 50)
         }
     }
 
     private func timeStr(_ t: TimeInterval) -> String {
-        String(format: "%02d:%02d", Int(t)/60, Int(t)%60)
+        String(format: "%02d:%02d", Int(t) / 60, Int(t) % 60)
     }
 }
 
 // ─────────────────────────────────────────────────────────────
-// MARK: - Word Flow — real-time highlighted text
+// MARK: - Word Flow
 // ─────────────────────────────────────────────────────────────
 
-struct WordFlowView: View {
+struct ReadWordFlowView: View {
     let words: [ReadWord]
 
     var body: some View {
-        // Wrap words naturally like text using a flow layout
         GeometryReader { geo in
-            self.buildFlow(in: geo.size.width)
+            buildFlow(in: geo.size.width)
         }
         .frame(minHeight: 200)
     }
 
-    // Manual flow layout — arrange word chips in rows
     private func buildFlow(in totalWidth: CGFloat) -> some View {
         var rows: [[ReadWord]] = [[]]
         var currentRowWidth: CGFloat = 0
         let spacing: CGFloat = 6
-        let font = UIFont.systemFont(ofSize: 18, weight: .medium)
+        let font = UIFont.systemFont(ofSize: 17, weight: .medium)
 
         for word in words {
             let wordWidth = (word.text as NSString)
-                .size(withAttributes: [.font: font]).width + 20  // 10px padding each side
+                .size(withAttributes: [.font: font]).width + 22
             if currentRowWidth + wordWidth + spacing > totalWidth && !rows.last!.isEmpty {
                 rows.append([])
                 currentRowWidth = 0
@@ -877,11 +832,11 @@ struct WordFlowView: View {
             currentRowWidth += wordWidth + spacing
         }
 
-        return VStack(alignment: .leading, spacing: 8) {
+        return VStack(alignment: .leading, spacing: 9) {
             ForEach(Array(rows.enumerated()), id: \.0) { _, row in
                 HStack(spacing: 6) {
                     ForEach(row) { word in
-                        WordChip(word: word)
+                        ReadWordChip(word: word)
                     }
                 }
             }
@@ -890,52 +845,49 @@ struct WordFlowView: View {
     }
 }
 
-struct WordChip: View {
+struct ReadWordChip: View {
     let word: ReadWord
+    @State private var pulse = false
 
     private var bg: Color {
         switch word.state {
-        case .pending:   return Color.white.opacity(0.06)
-        case .active:    return Color.cyan.opacity(0.2)
-        case .correct:   return Color.mint.opacity(0.18)
-        case .stumbled:  return Color.orange.opacity(0.18)
-        case .skipped:   return Color.red.opacity(0.15)
+        case .pending:  return Color.white.opacity(0.06)
+        case .active:   return Color.cyan.opacity(0.22)
+        case .correct:  return Color.mint.opacity(0.18)
+        case .stumbled: return Color.orange.opacity(0.18)
+        case .skipped:  return Color.red.opacity(0.14)
         }
     }
-
     private var fg: Color {
         switch word.state {
-        case .pending:   return Color(white: 0.45)
-        case .active:    return Color.cyan
-        case .correct:   return Color.mint
-        case .stumbled:  return Color.orange
-        case .skipped:   return Color.red.opacity(0.7)
+        case .pending:  return Color(white: 0.44)
+        case .active:   return .cyan
+        case .correct:  return .mint
+        case .stumbled: return .orange
+        case .skipped:  return .red.opacity(0.7)
         }
     }
-
-    private var borderColor: Color {
+    private var border: Color {
         switch word.state {
-        case .active:   return Color.cyan.opacity(0.7)
-        case .correct:  return Color.mint.opacity(0.4)
-        case .stumbled: return Color.orange.opacity(0.4)
-        case .skipped:  return Color.red.opacity(0.35)
-        default:        return Color.clear
+        case .active:   return .cyan.opacity(0.7)
+        case .correct:  return .mint.opacity(0.4)
+        case .stumbled: return .orange.opacity(0.4)
+        case .skipped:  return .red.opacity(0.3)
+        default:        return .clear
         }
     }
-
-    @State private var pulse = false
 
     var body: some View {
         Text(word.text)
-            .font(.system(size: 18, weight: word.state == .active ? .bold : .medium))
-            .foregroundColor(fg)
+            .font(.system(size: 17, weight: word.state == .active ? .bold : .medium))
+            .foregroundStyle(fg)
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
             .background(bg)
-            .cornerRadius(8)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
             .overlay(
                 RoundedRectangle(cornerRadius: 8)
-                    .stroke(borderColor, lineWidth: 1.5)
+                    .strokeBorder(border, lineWidth: 1.5)
             )
             .scaleEffect(word.state == .active && pulse ? 1.06 : 1.0)
             .onAppear {
@@ -964,26 +916,24 @@ struct ReadingResultsView: View {
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 20) {
-
-                // ── Header ───────────────────────────────────
+                // Header
                 VStack(spacing: 6) {
                     Text("Reading Complete")
-                        .font(.system(size: 32, weight: .bold, design: .rounded))
-                        .foregroundColor(.white)
+                        .font(.system(size: 30, weight: .bold))
+                        .foregroundStyle(.white)
                     Text(analysis.prompt.title)
-                        .font(.system(size: 13))
-                        .foregroundColor(analysis.prompt.categoryColor.opacity(0.8))
+                        .font(.system(size: 13, weight: .regular))
+                        .foregroundStyle(analysis.prompt.categoryColor.opacity(0.8))
                 }
                 .padding(.top, 52)
                 .opacity(appeared ? 1 : 0)
                 .animation(.easeOut(duration: 0.5).delay(0.1), value: appeared)
 
-                // ── Accuracy Ring ─────────────────────────────
+                // Accuracy Ring
                 ZStack {
                     Circle()
-                        .stroke(Color.white.opacity(0.07), lineWidth: 10)
+                        .stroke(Color.white.opacity(0.08), lineWidth: 10)
                         .frame(width: 140, height: 140)
-
                     Circle()
                         .trim(from: 0, to: CGFloat(animAccuracy / 100.0))
                         .stroke(
@@ -1000,36 +950,36 @@ struct ReadingResultsView: View {
                     VStack(spacing: 3) {
                         Text(String(format: "%.0f%%", animAccuracy))
                             .font(.system(size: 36, weight: .bold, design: .rounded))
-                            .foregroundColor(analysis.accuracyColor)
+                            .foregroundStyle(analysis.accuracyColor)
                             .contentTransition(.numericText())
                         Text("Accuracy")
-                            .font(.system(size: 11))
-                            .foregroundColor(Color(white: 0.38))
+                            .font(.system(size: 11, weight: .regular))
+                            .foregroundStyle(Color(white: 0.38))
                         Text(analysis.accuracyBadge)
                             .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(analysis.accuracyColor)
+                            .foregroundStyle(analysis.accuracyColor)
                     }
                 }
                 .opacity(appeared ? 1 : 0)
-                .animation(.easeOut(duration: 0.5).delay(0.25), value: appeared)
+                .animation(.easeOut(duration: 0.5).delay(0.2), value: appeared)
 
-                // ── Stat cards ────────────────────────────────
+                // Stats row
                 HStack(spacing: 12) {
-                    ResultStatCard(
+                    ReadResultStatCard(
                         icon: "speedometer",
                         title: "WPM",
                         value: "\(animWPM)",
                         badge: analysis.wpmBadge,
                         color: analysis.wpm >= 120 && analysis.wpm <= 180 ? .mint : .yellow
                     )
-                    ResultStatCard(
+                    ReadResultStatCard(
                         icon: "exclamationmark.bubble",
                         title: "Fillers",
                         value: "\(analysis.fillerCount)",
                         badge: analysis.fillerCount == 0 ? "Flawless" : analysis.fillerCount < 4 ? "Good" : "Noticeable",
                         color: analysis.fillerCount == 0 ? .mint : analysis.fillerCount < 4 ? .yellow : .orange
                     )
-                    ResultStatCard(
+                    ReadResultStatCard(
                         icon: "checkmark.circle",
                         title: "Correct",
                         value: "\(analysis.words.filter { $0.state == .correct }.count)",
@@ -1039,42 +989,29 @@ struct ReadingResultsView: View {
                 }
                 .padding(.horizontal, 20)
                 .opacity(appeared ? 1 : 0)
-                .animation(.easeOut(duration: 0.5).delay(0.4), value: appeared)
+                .animation(.easeOut(duration: 0.5).delay(0.35), value: appeared)
 
-                // ── Word map ─────────────────────────────────
-                ReadingWordMap(words: analysis.words)
+                // Word map
+                ReadWordMapView(words: analysis.words)
                     .padding(.horizontal, 20)
                     .opacity(appeared ? 1 : 0)
-                    .animation(.easeOut(duration: 0.5).delay(0.55), value: appeared)
+                    .animation(.easeOut(duration: 0.5).delay(0.5), value: appeared)
 
-                // ── Stumbled words ────────────────────────────
+                // Problem words
                 if !analysis.stumbledWords.isEmpty {
-                    WordListCard(
+                    ReadWordListCard(
                         title: "Stumbled On",
                         icon: "exclamationmark.triangle.fill",
                         color: .orange,
                         words: analysis.stumbledWords,
-                        tip: "These words tripped you up — try saying them alone slowly."
+                        tip: "Try saying these words alone, slowly."
                     )
                     .padding(.horizontal, 20)
                     .opacity(appeared ? 1 : 0)
-                    .animation(.easeOut(duration: 0.5).delay(0.65), value: appeared)
+                    .animation(.easeOut(duration: 0.5).delay(0.6), value: appeared)
                 }
 
-                if !analysis.skippedWords.isEmpty {
-                    WordListCard(
-                        title: "Skipped",
-                        icon: "arrow.right.to.line",
-                        color: .red,
-                        words: analysis.skippedWords,
-                        tip: "Skipped words may indicate rushing. Slow down at these spots."
-                    )
-                    .padding(.horizontal, 20)
-                    .opacity(appeared ? 1 : 0)
-                    .animation(.easeOut(duration: 0.5).delay(0.7), value: appeared)
-                }
-
-                // ── Try again / New passage ───────────────────
+                // CTA buttons
                 HStack(spacing: 12) {
                     Button(action: onDone) {
                         HStack(spacing: 8) {
@@ -1082,31 +1019,35 @@ struct ReadingResultsView: View {
                             Text("Try Again")
                                 .font(.system(size: 15, weight: .semibold))
                         }
-                        .foregroundColor(.white.opacity(0.8))
+                        .foregroundStyle(.white.opacity(0.8))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 16)
                         .background(Color.white.opacity(0.09))
-                        .cornerRadius(14)
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
                     }
-
                     Button(action: onDone) {
                         HStack(spacing: 8) {
                             Image(systemName: "doc.text.fill")
                             Text("New Passage")
                                 .font(.system(size: 15, weight: .semibold))
                         }
-                        .foregroundColor(.black)
+                        .foregroundStyle(.black)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 16)
-                        .background(LinearGradient(colors: [.cyan, Color(red: 0.1, green: 0.82, blue: 0.85)], startPoint: .leading, endPoint: .trailing))
-                        .cornerRadius(14)
+                        .background(
+                            LinearGradient(
+                                colors: [.cyan, Color(red: 0.1, green: 0.82, blue: 0.88)],
+                                startPoint: .leading, endPoint: .trailing
+                            )
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
                         .shadow(color: .cyan.opacity(0.35), radius: 14, y: 5)
                     }
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 50)
                 .opacity(appeared ? 1 : 0)
-                .animation(.easeOut(duration: 0.5).delay(0.8), value: appeared)
+                .animation(.easeOut(duration: 0.5).delay(0.75), value: appeared)
             }
         }
         .background(
@@ -1126,11 +1067,9 @@ struct ReadingResultsView: View {
     }
 }
 
-// ─────────────────────────────────────────────────────────────
 // MARK: - Result Sub-components
-// ─────────────────────────────────────────────────────────────
 
-struct ResultStatCard: View {
+struct ReadResultStatCard: View {
     let icon: String
     let title: String
     let value: String
@@ -1141,31 +1080,31 @@ struct ResultStatCard: View {
         VStack(alignment: .leading, spacing: 8) {
             Image(systemName: icon)
                 .font(.system(size: 12, weight: .medium))
-                .foregroundColor(color.opacity(0.8))
+                .foregroundStyle(color.opacity(0.8))
+                .symbolRenderingMode(.hierarchical)
             Text(value)
-                .font(.system(size: 28, weight: .bold, design: .rounded))
-                .foregroundColor(color)
+                .font(.system(size: 26, weight: .bold, design: .rounded))
+                .foregroundStyle(color)
                 .contentTransition(.numericText())
             Text(title)
-                .font(.system(size: 10))
-                .foregroundColor(Color(white: 0.35))
+                .font(.system(size: 10, weight: .regular))
+                .foregroundStyle(Color(white: 0.35))
             Text(badge)
                 .font(.system(size: 10, weight: .semibold))
-                .foregroundColor(color)
+                .foregroundStyle(color)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
                 .background(color.opacity(0.14))
-                .cornerRadius(10)
+                .clipShape(Capsule())
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(13)
         .background(Color.white.opacity(0.06))
-        .cornerRadius(14)
+        .clipShape(RoundedRectangle(cornerRadius: 14))
     }
 }
 
-// Mini visual map of the full reading — color-coded by word state
-struct ReadingWordMap: View {
+struct ReadWordMapView: View {
     let words: [ReadWord]
 
     var body: some View {
@@ -1173,14 +1112,13 @@ struct ReadingWordMap: View {
             HStack {
                 Text("Reading Map")
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
                 Spacer()
                 Text("Every word, colour-coded")
-                    .font(.system(size: 10))
-                    .foregroundColor(Color(white: 0.32))
+                    .font(.system(size: 10, weight: .regular))
+                    .foregroundStyle(Color(white: 0.32))
             }
 
-            // Compact grid of word state dots
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 3), count: 20), spacing: 3) {
                 ForEach(words) { w in
                     RoundedRectangle(cornerRadius: 2)
@@ -1189,16 +1127,15 @@ struct ReadingWordMap: View {
                 }
             }
 
-            // Legend
             HStack(spacing: 12) {
-                MapLegend(color: .mint,            label: "Correct")
-                MapLegend(color: .orange,          label: "Stumbled")
-                MapLegend(color: .red.opacity(0.7), label: "Skipped")
+                ReadMapLegend(color: .mint,             label: "Correct")
+                ReadMapLegend(color: .orange,           label: "Stumbled")
+                ReadMapLegend(color: .red.opacity(0.7), label: "Skipped")
             }
         }
         .padding(16)
         .background(Color.white.opacity(0.06))
-        .cornerRadius(14)
+        .clipShape(RoundedRectangle(cornerRadius: 14))
     }
 
     private func dotColor(_ state: WordState) -> Color {
@@ -1211,17 +1148,17 @@ struct ReadingWordMap: View {
     }
 }
 
-struct MapLegend: View {
+struct ReadMapLegend: View {
     let color: Color; let label: String
     var body: some View {
         HStack(spacing: 5) {
             RoundedRectangle(cornerRadius: 2).fill(color).frame(width: 10, height: 10)
-            Text(label).font(.system(size: 10)).foregroundColor(Color(white: 0.4))
+            Text(label).font(.system(size: 10, weight: .regular)).foregroundStyle(Color(white: 0.4))
         }
     }
 }
 
-struct WordListCard: View {
+struct ReadWordListCard: View {
     let title: String
     let icon: String
     let color: Color
@@ -1233,64 +1170,38 @@ struct WordListCard: View {
             HStack(spacing: 8) {
                 Image(systemName: icon)
                     .font(.system(size: 12))
-                    .foregroundColor(color)
+                    .foregroundStyle(color)
+                    .symbolRenderingMode(.hierarchical)
                 Text(title)
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
             }
 
             // Word chips
-            FlowHStack(words: words, color: color)
+            let columns = [GridItem(.adaptive(minimum: 70))]
+            LazyVGrid(columns: columns, alignment: .leading, spacing: 6) {
+                ForEach(words.prefix(20), id: \.self) { word in
+                    Text(word)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(color)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(color.opacity(0.12))
+                        .clipShape(Capsule())
+                }
+            }
 
             Text(tip)
-                .font(.system(size: 11))
-                .foregroundColor(Color(white: 0.42))
+                .font(.system(size: 11, weight: .regular))
+                .foregroundStyle(Color(white: 0.42))
                 .lineSpacing(3)
         }
         .padding(14)
         .background(color.opacity(0.07))
-        .cornerRadius(14)
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(color.opacity(0.2), lineWidth: 1))
-    }
-}
-
-// Simple flow layout for word chips
-struct FlowHStack: View {
-    let words: [String]
-    let color: Color
-
-    var body: some View {
-        GeometryReader { geo in
-            self.flow(in: geo.size.width)
-        }
-        .frame(minHeight: 30)
-    }
-
-    private func flow(in width: CGFloat) -> some View {
-        var rows: [[String]] = [[]]
-        var currentW: CGFloat = 0
-        let font = UIFont.systemFont(ofSize: 12, weight: .medium)
-        for word in words {
-            let w = (word as NSString).size(withAttributes: [.font: font]).width + 22
-            if currentW + w + 6 > width && !rows.last!.isEmpty {
-                rows.append([]); currentW = 0
-            }
-            rows[rows.count-1].append(word); currentW += w + 6
-        }
-        return VStack(alignment: .leading, spacing: 6) {
-            ForEach(Array(rows.enumerated()), id: \.0) { _, row in
-                HStack(spacing: 6) {
-                    ForEach(row, id: \.self) { word in
-                        Text(word)
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(color)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 4)
-                            .background(color.opacity(0.12))
-                            .cornerRadius(8)
-                    }
-                }
-            }
-        }
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .strokeBorder(color.opacity(0.2), lineWidth: 1)
+        )
     }
 }

@@ -1,17 +1,13 @@
-//
-//  RecordVideoView.swift
-//  Cadence
-//
-//  Created by Dhiraj on 26/02/26.
 // RecordVideoView.swift
-// Cadence — SSC Edition
-// Tab 3: Record yourself, watch back, get analysis
+// Cadence — iOS 26 Native
+// SF Pro + SF Symbols throughout
+// FIXED: isVideoMirrored crash fix retained
 
 import SwiftUI
 @preconcurrency import AVFoundation
 import Speech
 
-// MARK: - Analysis Result (Equatable for onChange)
+// MARK: - Analysis Result
 struct VideoAnalysisResult: Equatable {
     let transcript: String
     let wordCount: Int
@@ -39,10 +35,10 @@ struct VideoAnalysisResult: Equatable {
 
     var fillerBadge: String {
         switch fillerCount {
-        case 0:    return "Flawless"
+        case 0:     return "Flawless"
         case 1...3: return "Great"
         case 4...7: return "Noticeable"
-        default:   return "Needs Work"
+        default:    return "Needs Work"
         }
     }
 }
@@ -80,8 +76,7 @@ class VideoRecorder: NSObject, ObservableObject {
         session.sessionPreset = .high
 
         guard
-            let videoDevice = AVCaptureDevice.default(
-                .builtInWideAngleCamera, for: .video, position: .front),
+            let videoDevice = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front),
             let videoInput = try? AVCaptureDeviceInput(device: videoDevice),
             session.canAddInput(videoInput)
         else { return }
@@ -99,16 +94,21 @@ class VideoRecorder: NSObject, ObservableObject {
 
         let layer = AVCaptureVideoPreviewLayer(session: session)
         layer.videoGravity = .resizeAspectFill
-        layer.connection?.isVideoMirrored = true
-        previewLayer = layer
 
+        // CRASH FIX: disable automaticallyAdjustsVideoMirroring before setting isVideoMirrored
+        if let conn = layer.connection, conn.isVideoMirroringSupported {
+            conn.automaticallyAdjustsVideoMirroring = false
+            conn.isVideoMirrored = true
+        }
+
+        previewLayer = layer
         captureSession = session
         DispatchQueue.global(qos: .userInitiated).async { session.startRunning() }
         sessionStarted = true
     }
 
     func startRecording() {
-        guard let session = captureSession, session.isRunning else { return }
+        guard let s = captureSession, s.isRunning else { return }
         try? FileManager.default.removeItem(at: outputURL)
         movieOutput.startRecording(to: outputURL, recordingDelegate: self)
         isRecording = true
@@ -149,31 +149,21 @@ class VideoRecorder: NSObject, ObservableObject {
         request.shouldReportPartialResults = false
 
         return await withCheckedContinuation { continuation in
-            var didResume = false
+            var done = false
             recognizer?.recognitionTask(with: request) { result, error in
-                guard !didResume else { return }
-                guard let result = result, result.isFinal else {
-                    if error != nil {
-                        didResume = true
-                        continuation.resume(returning: .empty)
-                    }
+                guard !done else { return }
+                guard let result, result.isFinal else {
+                    if error != nil { done = true; continuation.resume(returning: .empty) }
                     return
                 }
-                didResume = true
+                done = true
                 let text = result.bestTranscription.formattedString
-                let words = text.lowercased()
-                    .components(separatedBy: .whitespacesAndNewlines)
-                    .filter { !$0.isEmpty }
-                let fillerSet: Set<String> = ["um", "uh", "like", "so", "actually", "basically"]
-                let fillers = words.filter { fillerSet.contains($0) }.count
-                let duration = result.bestTranscription.segments.last?.timestamp ?? 1.0
-                let wpm = duration > 0 ? Int(Double(words.count) / (duration / 60.0)) : 0
+                let words = text.lowercased().components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
+                let fillers = words.filter { ["um","uh","like","so","actually","basically"].contains($0) }.count
+                let dur = result.bestTranscription.segments.last?.timestamp ?? 1.0
+                let wpm = dur > 0 ? Int(Double(words.count) / (dur / 60.0)) : 0
                 continuation.resume(returning: VideoAnalysisResult(
-                    transcript: text,
-                    wordCount: words.count,
-                    wpm: wpm,
-                    fillerCount: fillers,
-                    duration: duration
+                    transcript: text, wordCount: words.count, wpm: wpm, fillerCount: fillers, duration: dur
                 ))
             }
         }
@@ -181,17 +171,10 @@ class VideoRecorder: NSObject, ObservableObject {
 }
 
 extension VideoRecorder: AVCaptureFileOutputRecordingDelegate {
-    nonisolated func fileOutput(
-        _ output: AVCaptureFileOutput,
-        didFinishRecordingTo outputFileURL: URL,
-        from connections: [AVCaptureConnection],
-        error: Error?
-    ) {
+    nonisolated func fileOutput(_ output: AVCaptureFileOutput, didFinishRecordingTo outputFileURL: URL,
+                                from connections: [AVCaptureConnection], error: Error?) {
         Task { @MainActor in
-            if error == nil {
-                self.recordedURL = outputFileURL
-                self.analyzeRecording(url: outputFileURL)
-            }
+            if error == nil { self.recordedURL = outputFileURL; self.analyzeRecording(url: outputFileURL) }
         }
     }
 }
@@ -222,174 +205,129 @@ struct RecordVideoView: View {
     @State private var showAnalysis = false
 
     var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
+        NavigationStack {
+            ZStack {
+                Color.black.ignoresSafeArea()
 
-            if !recorder.permissionsGranted {
-                PermissionRequestView {
-                    Task { await recorder.requestPermissions() }
-                }
-            } else if showAnalysis, let result = recorder.analysisResult {
-                VideoAnalysisView(
-                    result: result,
-                    duration: recorder.recordingDuration
-                ) {
-                    showAnalysis = false
-                    recorder.reset()
-                }
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-
-            } else {
-                ZStack {
-                    if recorder.sessionStarted {
-                        RecordCameraPreview(recorder: recorder)
-                            .ignoresSafeArea()
+                if !recorder.permissionsGranted {
+                    // Permission state
+                    ContentUnavailableView {
+                        Label("Camera Access Needed", systemImage: "video.slash.fill")
+                    } description: {
+                        Text("Cadence needs camera and microphone access to record your practice sessions.")
+                    } actions: {
+                        Button("Grant Access") {
+                            Task { await recorder.requestPermissions() }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.mint)
                     }
 
-                    // Gradient overlays
-                    VStack {
-                        LinearGradient(
-                            colors: [.black.opacity(0.65), .clear],
-                            startPoint: .top, endPoint: .bottom
-                        )
-                        .frame(height: 160)
-                        Spacer()
-                        LinearGradient(
-                            colors: [.clear, .black.opacity(0.75)],
-                            startPoint: .top, endPoint: .bottom
-                        )
-                        .frame(height: 260)
+                } else if showAnalysis, let result = recorder.analysisResult {
+                    VideoAnalysisView(result: result, duration: recorder.recordingDuration) {
+                        showAnalysis = false
+                        recorder.reset()
                     }
-                    .ignoresSafeArea()
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
 
-                    VStack {
-                        // Header
-                        HStack {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Record & Review")
-                                    .font(.system(size: 20, weight: .bold))
-                                    .foregroundColor(.white)
-                                Text("Film yourself — get full speech analysis")
-                                    .font(.system(size: 12))
-                                    .foregroundColor(Color(white: 0.55))
-                            }
+                } else {
+                    // Camera view
+                    ZStack {
+                        if recorder.sessionStarted {
+                            RecordCameraPreview(recorder: recorder)
+                                .ignoresSafeArea()
+                        }
+
+                        // Gradient overlays
+                        VStack {
+                            LinearGradient(colors: [.black.opacity(0.6), .clear], startPoint: .top, endPoint: .bottom)
+                                .frame(height: 160)
                             Spacer()
-                            if recorder.isRecording {
-                                HStack(spacing: 6) {
-                                    Circle()
-                                        .fill(Color.red)
-                                        .frame(width: 8, height: 8)
-                                    Text(timeString(recorder.recordingDuration))
-                                        .font(.system(size: 15, design: .monospaced).bold())
-                                        .foregroundColor(.white)
-                                }
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 7)
-                                .background(Color.red.opacity(0.2))
-                                .cornerRadius(20)
-                            }
+                            LinearGradient(colors: [.clear, .black.opacity(0.8)], startPoint: .top, endPoint: .bottom)
+                                .frame(height: 240)
                         }
-                        .padding(.horizontal, 20)
-                        .padding(.top, 52)
+                        .ignoresSafeArea()
 
-                        Spacer()
+                        VStack {
+                            Spacer()
 
-                        // Analyzing indicator
-                        if recorder.isAnalyzing {
-                            VStack(spacing: 10) {
-                                ProgressView()
-                                    .progressViewStyle(
-                                        CircularProgressViewStyle(tint: .mint)
-                                    )
-                                    .scaleEffect(1.2)
-                                Text("Analyzing your speech…")
-                                    .font(.system(size: 13))
-                                    .foregroundColor(Color(white: 0.6))
-                            }
-                            .padding(20)
-                            .background(Color.black.opacity(0.7))
-                            .cornerRadius(16)
-                            .padding(.bottom, 20)
-                        }
-
-                        // Record button
-                        VStack(spacing: 14) {
-                            Button {
-                                withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
-                                    if recorder.isRecording { recorder.stopRecording() }
-                                    else { recorder.startRecording() }
+                            // Analyzing indicator
+                            if recorder.isAnalyzing {
+                                VStack(spacing: 12) {
+                                    ProgressView()
+                                        .tint(.mint)
+                                        .scaleEffect(1.3)
+                                    Text("Analyzing speech…")
+                                        .font(.system(size: 14, weight: .medium))
+                                        .foregroundStyle(.secondary)
                                 }
-                            } label: {
-                                ZStack {
-                                    Circle()
-                                        .stroke(Color.white.opacity(0.3), lineWidth: 3)
-                                        .frame(width: 80, height: 80)
-                                    if recorder.isRecording {
-                                        RoundedRectangle(cornerRadius: 6)
-                                            .fill(Color.red)
-                                            .frame(width: 30, height: 30)
-                                    } else {
+                                .padding(24)
+                                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
+                                .padding(.bottom, 20)
+                            }
+
+                            // Record button + timer
+                            VStack(spacing: 16) {
+                                if recorder.isRecording {
+                                    // Timer badge
+                                    Label(timeString(recorder.recordingDuration), systemImage: "circle.fill")
+                                        .font(.system(size: 14, weight: .semibold, design: .monospaced))
+                                        .foregroundStyle(.white)
+                                        .symbolRenderingMode(.multicolor)
+                                        .padding(.horizontal, 14)
+                                        .padding(.vertical, 8)
+                                        .background(.regularMaterial, in: Capsule())
+                                }
+
+                                // Record button — pure native
+                                Button {
+                                    withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+                                        if recorder.isRecording { recorder.stopRecording() }
+                                        else { recorder.startRecording() }
+                                    }
+                                } label: {
+                                    ZStack {
                                         Circle()
-                                            .fill(Color.red)
-                                            .frame(width: 64, height: 64)
+                                            .strokeBorder(.white.opacity(0.4), lineWidth: 3)
+                                            .frame(width: 78, height: 78)
+
+                                        if recorder.isRecording {
+                                            RoundedRectangle(cornerRadius: 8)
+                                                .fill(.red)
+                                                .frame(width: 28, height: 28)
+                                        } else {
+                                            Circle()
+                                                .fill(.red)
+                                                .frame(width: 62, height: 62)
+                                        }
                                     }
                                 }
+                                .buttonStyle(.plain)
+
+                                Text(recorder.isRecording ? "Tap to stop" : "Tap to record")
+                                    .font(.system(size: 13, weight: .regular))
+                                    .foregroundStyle(.secondary)
                             }
-                            Text(recorder.isRecording ? "Tap to stop" : "Tap to record")
-                                .font(.system(size: 12))
-                                .foregroundColor(Color(white: 0.55))
+                            .padding(.bottom, 48)
                         }
-                        .padding(.bottom, 60)
                     }
                 }
-                .onChange(of: recorder.analysisResult) { result in
-                    if result != nil {
-                        withAnimation(.spring()) { showAnalysis = true }
-                    }
-                }
+            }
+            .navigationTitle("Record & Review")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            .onChange(of: recorder.analysisResult) { _, result in
+                if result != nil { withAnimation(.spring()) { showAnalysis = true } }
             }
         }
         .task {
-            if !recorder.permissionsGranted {
-                await recorder.requestPermissions()
-            }
+            if !recorder.permissionsGranted { await recorder.requestPermissions() }
         }
         .animation(.easeInOut(duration: 0.3), value: showAnalysis)
     }
 
     private func timeString(_ t: TimeInterval) -> String {
         String(format: "%02d:%02d", Int(t) / 60, Int(t) % 60)
-    }
-}
-
-// MARK: - Permission Request
-struct PermissionRequestView: View {
-    let onRequest: () -> Void
-
-    var body: some View {
-        VStack(spacing: 24) {
-            Image(systemName: "video.fill")
-                .font(.system(size: 48, weight: .thin))
-                .foregroundColor(.mint)
-            VStack(spacing: 8) {
-                Text("Camera & Microphone")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundColor(.white)
-                Text("Cadence needs access to record\nyour practice sessions.")
-                    .font(.system(size: 14))
-                    .foregroundColor(Color(white: 0.5))
-                    .multilineTextAlignment(.center)
-                    .lineSpacing(4)
-            }
-            Button(action: onRequest) {
-                Text("Grant Access")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(.black)
-                    .frame(width: 200, height: 50)
-                    .background(Color.mint)
-                    .cornerRadius(14)
-            }
-        }
     }
 }
 
@@ -400,91 +338,83 @@ struct VideoAnalysisView: View {
     let onDismiss: () -> Void
 
     var body: some View {
-        ZStack {
-            LinearGradient(
-                colors: [Color(red: 0.03, green: 0.06, blue: 0.05), .black],
-                startPoint: .top, endPoint: .bottom
-            )
-            .ignoresSafeArea()
+        NavigationStack {
+            List {
+                // Metrics section
+                Section {
+                    AnalysisMetricRow(
+                        symbol: "speedometer",
+                        label: "Pacing",
+                        value: result.wpm == 0 ? "—" : "\(result.wpm) WPM",
+                        badge: result.wpmBadge,
+                        color: (result.wpm >= 120 && result.wpm <= 160) ? .mint : .orange
+                    )
+                    AnalysisMetricRow(
+                        symbol: "exclamationmark.bubble.fill",
+                        label: "Filler Words",
+                        value: "\(result.fillerCount)",
+                        badge: result.fillerBadge,
+                        color: result.fillerCount <= 3 ? .mint : .orange
+                    )
+                    AnalysisMetricRow(
+                        symbol: "clock.fill",
+                        label: "Duration",
+                        value: String(format: "%.0f sec", duration),
+                        badge: "\(result.wordCount) words",
+                        color: .blue
+                    )
+                } header: {
+                    Text("Results")
+                }
 
-            ScrollView(showsIndicators: false) {
-                VStack(spacing: 18) {
-                    VStack(spacing: 6) {
-                        Text("Recording Analysis")
-                            .font(.system(size: 28, weight: .bold, design: .rounded))
-                            .foregroundColor(.white)
-                        Text(String(format: "%.0fs · %d words", duration, result.wordCount))
-                            .font(.system(size: 13))
-                            .foregroundColor(Color(white: 0.4))
+                // Transcript
+                if !result.transcript.isEmpty {
+                    Section("Transcript") {
+                        Text(result.transcript)
+                            .font(.system(size: 14, weight: .regular))
+                            .foregroundStyle(.primary)
+                            .lineSpacing(4)
                     }
-                    .padding(.top, 52)
-
-                    LazyVGrid(
-                        columns: [GridItem(.flexible()), GridItem(.flexible())],
-                        spacing: 12
-                    ) {
-                        MetricCard(
-                            icon: "speedometer",
-                            title: "Pacing",
-                            value: result.wpm == 0 ? "—" : "\(result.wpm)",
-                            unit: "Words / Min",
-                            badge: result.wpmBadge,
-                            color: (result.wpm >= 120 && result.wpm <= 160) ? .mint : .orange
-                        )
-                        MetricCard(
-                            icon: "exclamationmark.bubble",
-                            title: "Fillers",
-                            value: "\(result.fillerCount)",
-                            unit: "Total Used",
-                            badge: result.fillerBadge,
-                            color: result.fillerCount <= 3 ? .mint : .orange
-                        )
-                    }
-                    .padding(.horizontal, 20)
-
-                    if !result.transcript.isEmpty {
-                        VStack(alignment: .leading, spacing: 10) {
-                            HStack(spacing: 8) {
-                                Image(systemName: "text.quote")
-                                    .font(.system(size: 12))
-                                    .foregroundColor(Color(white: 0.4))
-                                Text("Transcript")
-                                    .font(.system(size: 15, weight: .semibold))
-                                    .foregroundColor(.white)
-                            }
-                            Text(result.transcript)
-                                .font(.system(size: 13))
-                                .foregroundColor(Color(white: 0.62))
-                                .lineSpacing(4)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .padding(16)
-                        .background(Color.white.opacity(0.05))
-                        .cornerRadius(14)
-                        .padding(.horizontal, 20)
-                    }
-
-                    Button(action: onDismiss) {
-                        HStack(spacing: 10) {
-                            Image(systemName: "arrow.counterclockwise")
-                            Text("Record Again")
-                                .font(.system(size: 16, weight: .semibold))
-                        }
-                        .foregroundColor(.black)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 17)
-                        .background(
-                            LinearGradient(
-                                colors: [.mint, Color(red: 0.2, green: 0.85, blue: 0.68)],
-                                startPoint: .topLeading, endPoint: .bottomTrailing
-                            )
-                        )
-                        .cornerRadius(16)
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 50)
+                }
+            }
+            .listStyle(.insetGrouped)
+            .navigationTitle("Recording Analysis")
+            .navigationBarTitleDisplayMode(.large)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done", action: onDismiss)
+                        .fontWeight(.semibold)
                 }
             }
         }
+    }
+}
+
+struct AnalysisMetricRow: View {
+    let symbol: String
+    let label: String
+    let value: String
+    let badge: String
+    let color: Color
+
+    var body: some View {
+        HStack {
+            Label(label, systemImage: symbol)
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(color)
+                .font(.system(size: 15, weight: .medium))
+
+            Spacer()
+
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(value)
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.primary)
+                Text(badge)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(color)
+            }
+        }
+        .padding(.vertical, 4)
     }
 }
