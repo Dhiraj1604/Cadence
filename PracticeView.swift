@@ -1,5 +1,5 @@
 // PracticeView.swift
-// Cadence — iOS 26 Native · Glass Sheet · SF Symbols
+// Cadence — iOS 26 Native · Liquid Glass
 
 import SwiftUI
 
@@ -16,6 +16,7 @@ struct PracticeView: View {
 
     var body: some View {
         ZStack {
+            // Deep ambient background
             LinearGradient(
                 colors: [Color(red: 0.04, green: 0.10, blue: 0.08), .black],
                 startPoint: .top, endPoint: .bottom
@@ -76,25 +77,25 @@ struct PracticeView: View {
                     .padding(.horizontal, 20)
                     .padding(.bottom, 10)
 
-                // ── TRANSCRIPT ────────────────────────────────
+                // ── TRANSCRIPT (Liquid Glass) ─────────────────
                 ZStack {
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.white.opacity(0.04))
-                        .overlay(RoundedRectangle(cornerRadius: 12)
-                            .strokeBorder(Color.white.opacity(0.07), lineWidth: 1))
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(.ultraThinMaterial)
+                        .overlay(RoundedRectangle(cornerRadius: 16)
+                            .strokeBorder(Color.white.opacity(0.15), lineWidth: 0.5))
                     Text(coachEngine.transcribedText.isEmpty
                             ? "Start speaking — I'm listening…"
                             : coachEngine.transcribedText)
-                        .font(.system(size: 13))
+                        .font(.system(size: 14, weight: .medium))
                         .foregroundStyle(coachEngine.transcribedText.isEmpty
-                            ? Color(white: 0.28) : Color(white: 0.68))
+                            ? Color.white.opacity(0.4) : Color.white.opacity(0.9))
                         .lineLimit(3)
                         .multilineTextAlignment(.center)
                         .padding(12)
                         .frame(maxWidth: .infinity)
                         .animation(.easeInOut(duration: 0.2), value: coachEngine.transcribedText)
                 }
-                .frame(height: 62)
+                .frame(height: 68)
                 .padding(.horizontal, 20)
 
                 Spacer()
@@ -123,18 +124,22 @@ struct PracticeView: View {
                 Button { showEndSheet = true } label: {
                     ZStack {
                         Circle()
+                            .fill(.ultraThinMaterial)
+                            .frame(width: 76, height: 76)
+                            .overlay(Circle().strokeBorder(Color.white.opacity(0.2), lineWidth: 1))
+                        Circle()
                             .fill(Color.red.opacity(0.88))
-                            .frame(width: 68, height: 68)
+                            .frame(width: 64, height: 64)
                             .shadow(color: .red.opacity(0.40), radius: 16, y: 4)
                         Image(systemName: "stop.fill")
-                            .font(.system(size: 24, weight: .semibold))
+                            .font(.system(size: 24, weight: .bold))
                             .foregroundStyle(.white)
                     }
                 }
                 .padding(.bottom, 48)
             }
         }
-        // ── iOS 26 Glass Sheet ────────────────────────────────
+        // ── iOS 26 Native End Session Sheet ───────────────────
         .sheet(isPresented: $showEndSheet) {
             EndSessionSheet(
                 duration: session.duration,
@@ -154,9 +159,9 @@ struct PracticeView: View {
                     )
                 }
             )
-            .presentationDetents([.height(220)])
-            .presentationBackground(.regularMaterial)
-            .presentationCornerRadius(28)
+            .presentationDetents([.height(260)])
+            .presentationBackground(.ultraThinMaterial) // Liquid Glass
+            .presentationCornerRadius(32) // Modern Apple hardware curve
             .environment(\.colorScheme, .dark)
         }
         .onAppear { coachEngine.requestPermissionsAndStart(); cameraManager.start() }
@@ -180,7 +185,7 @@ struct PracticeView: View {
     private var wpmColor: Color {
         switch coachEngine.wpm {
         case 120...160: return .mint; case 100..<120, 161..<180: return .yellow
-        case 0: return Color(white: 0.35); default: return .orange
+        case 0: return Color.white.opacity(0.5); default: return .orange
         }
     }
     private var fillerStatus: String {
@@ -233,7 +238,7 @@ struct PracticeView: View {
     }
 }
 
-// MARK: - End Session Sheet (iOS 26 Glass)
+// MARK: - End Session Sheet (iOS 26 Liquid Glass)
 struct EndSessionSheet: View {
     let duration: TimeInterval
     let onKeepGoing: () -> Void
@@ -242,93 +247,95 @@ struct EndSessionSheet: View {
     var body: some View {
         VStack(spacing: 0) {
             Capsule()
-                .fill(Color.white.opacity(0.22))
-                .frame(width: 36, height: 4)
-                .padding(.top, 10)
-                .padding(.bottom, 18)
+                .fill(Color.white.opacity(0.3))
+                .frame(width: 40, height: 5)
+                .padding(.top, 12)
+                .padding(.bottom, 24)
 
-            Image(systemName: "stop.circle")
-                .font(.system(size: 36, weight: .thin))
-                .foregroundStyle(.red)
+            Image(systemName: "waveform.circle.fill")
+                .font(.system(size: 42, weight: .light))
+                .foregroundStyle(LinearGradient(colors: [.mint, .cyan], startPoint: .topLeading, endPoint: .bottomTrailing))
                 .symbolRenderingMode(.hierarchical)
-                .padding(.bottom, 8)
+                .padding(.bottom, 12)
 
-            Text("End Session?")
-                .font(.system(size: 19, weight: .semibold))
-                .foregroundStyle(.primary)
+            Text("Conclude Session")
+                .font(.system(size: 22, weight: .bold))
+                .foregroundStyle(.white)
             Text(sessionSubtitle)
-                .font(.system(size: 14))
-                .foregroundStyle(.secondary)
-                .padding(.bottom, 20)
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(Color.white.opacity(0.6))
+                .padding(.bottom, 28)
 
-            HStack(spacing: 12) {
+            HStack(spacing: 16) {
                 Button(action: onKeepGoing) {
-                    Label("Keep Going", systemImage: "mic.fill")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.mint)
-                        .frame(maxWidth: .infinity, minHeight: 50)
-                        .background(.mint.opacity(0.12))
-                        .clipShape(RoundedRectangle(cornerRadius: 14))
-                        .overlay(RoundedRectangle(cornerRadius: 14)
-                            .strokeBorder(.mint.opacity(0.28), lineWidth: 1))
+                    Text("Keep Going")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity, minHeight: 54)
+                        .background(.ultraThinMaterial)
+                        .clipShape(RoundedRectangle(cornerRadius: 18))
+                        .overlay(RoundedRectangle(cornerRadius: 18)
+                            .strokeBorder(Color.white.opacity(0.2), lineWidth: 0.5))
                 }
                 .buttonStyle(.plain)
 
                 Button(action: onEndSession) {
-                    Label("End Session", systemImage: "checkmark.circle.fill")
-                        .font(.system(size: 15, weight: .semibold))
+                    Text("End Session")
+                        .font(.system(size: 16, weight: .bold))
                         .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity, minHeight: 50)
-                        .background(.red.opacity(0.72))
-                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                        .frame(maxWidth: .infinity, minHeight: 54)
+                        .background(Color.red.opacity(0.85))
+                        .clipShape(RoundedRectangle(cornerRadius: 18))
+                        .shadow(color: Color.red.opacity(0.3), radius: 10, y: 4)
                 }
                 .buttonStyle(.plain)
             }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 8)
+            .padding(.horizontal, 24)
+            .padding(.bottom, 16)
         }
     }
 
     private var sessionSubtitle: String {
         let d = Int(duration)
-        if d < 60 { return "You've been speaking for \(d)s" }
-        return "You've been speaking for \(d/60)m \(d%60)s"
+        if d < 60 { return "Captured \(d) seconds of speech" }
+        return "Captured \(d/60)m \(d%60)s of speech"
     }
 }
 
-// MARK: - LiveMetricCard
+// MARK: - LiveMetricCard (Liquid Glass)
 struct LiveMetricCard: View {
     let icon: String; let label: String
     let value: String; let status: String; let color: Color
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 5) {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
                 Image(systemName: icon)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(color.opacity(0.8))
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(color)
                 Text(label)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Color(white: 0.40))
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color.white.opacity(0.6))
             }
             Text(value)
-                .font(.system(size: 26, weight: .bold, design: .rounded))
+                .font(.system(size: 28, weight: .bold, design: .rounded))
                 .foregroundStyle(color)
                 .contentTransition(.numericText())
                 .minimumScaleFactor(0.7).lineLimit(1)
             Text(status)
-                .font(.system(size: 10, weight: .semibold))
+                .font(.system(size: 11, weight: .bold))
                 .foregroundStyle(color)
-                .padding(.horizontal, 8).padding(.vertical, 4)
+                .padding(.horizontal, 10).padding(.vertical, 5)
                 .background(color.opacity(0.15))
                 .clipShape(Capsule())
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(Color.white.opacity(0.06))
-        .clipShape(RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14)
-            .strokeBorder(color.opacity(0.14), lineWidth: 1))
+        .padding(14)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+        .overlay(RoundedRectangle(cornerRadius: 18)
+            .strokeBorder(Color.white.opacity(0.15), lineWidth: 0.5))
+        .shadow(color: Color.black.opacity(0.2), radius: 10, y: 5)
     }
 }
 
@@ -340,35 +347,40 @@ struct LiveFlowStrip: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 5) {
                 Image(systemName: "waveform.path.ecg")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(Color(white: 0.34))
-                Text("Speech Flow DNA")
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Color(white: 0.34))
+                    .foregroundStyle(Color.white.opacity(0.5))
+                Text("Speech Flow DNA")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(Color.white.opacity(0.5))
                 Spacer()
                 Text("\(events.count) events")
-                    .font(.system(size: 10)).foregroundStyle(Color(white: 0.24))
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color.white.opacity(0.4))
             }
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 5)
-                        .fill(Color.white.opacity(0.04)).frame(height: 28)
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(.ultraThinMaterial)
+                        .frame(height: 32)
+                        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.white.opacity(0.1), lineWidth: 0.5))
                     ForEach(events.suffix(60)) { event in
                         let x = duration > 1
                             ? geo.size.width * CGFloat(event.timestamp / duration) : CGFloat(0)
                         RoundedRectangle(cornerRadius: 2)
                             .fill(event.color)
-                            .frame(width: 4, height: 20)
+                            .frame(width: 4, height: 24)
                             .offset(x: min(max(x - 2, 0), geo.size.width - 4), y: 4)
                             .transition(.opacity.animation(.easeIn(duration: 0.25)))
+                            .shadow(color: event.color.opacity(0.5), radius: 4)
                     }
                 }
             }
-            .frame(height: 28)
+            .frame(height: 32)
         }
-        .padding(12)
-        .background(Color.white.opacity(0.05))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .padding(14)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Color.white.opacity(0.15), lineWidth: 0.5))
     }
 }
 
@@ -388,29 +400,34 @@ struct AdvancedVisualizerView: View {
     }
     var body: some View {
         ZStack {
-            Circle().stroke(Color.white.opacity(0.05), lineWidth: 2).frame(width: 180, height: 180)
+            Circle().stroke(Color.white.opacity(0.08), lineWidth: 1.5).frame(width: 190, height: 190)
             Circle()
                 .trim(from: 0, to: CGFloat(progress))
-                .stroke(ringColor.opacity(0.75), style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                .frame(width: 180, height: 180).rotationEffect(.degrees(-90))
+                .stroke(ringColor.opacity(0.85), style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                .frame(width: 190, height: 190).rotationEffect(.degrees(-90))
                 .animation(.spring(response: 1.1, dampingFraction: 0.8), value: progress)
-            Circle().fill(isSpeaking ? Color.mint.opacity(0.10) : Color(white: 0.05))
-                .frame(width: 148 + amplitude * 70, height: 148 + amplitude * 70)
+                .shadow(color: ringColor.opacity(0.4), radius: 8)
+            
+            Circle().fill(isSpeaking ? Color.mint.opacity(0.15) : Color.white.opacity(0.02))
+                .frame(width: 156 + amplitude * 70, height: 156 + amplitude * 70)
                 .animation(.spring(response: 0.3, dampingFraction: 0.5), value: amplitude)
-            Circle().fill(isSpeaking ? Color.mint.opacity(0.20) : Color(white: 0.08))
-                .frame(width: 118 + amplitude * 46, height: 118 + amplitude * 46)
+            
+            Circle().fill(isSpeaking ? Color.mint.opacity(0.25) : Color.white.opacity(0.04))
+                .frame(width: 124 + amplitude * 46, height: 124 + amplitude * 46)
                 .animation(.spring(response: 0.2, dampingFraction: 0.55), value: amplitude)
-            Circle().fill(isSpeaking ? Color.mint : Color(white: 0.18))
-                .frame(width: 92 + amplitude * 26, height: 92 + amplitude * 26)
-                .shadow(color: isSpeaking ? Color.mint.opacity(0.50) : .clear, radius: 14)
+            
+            Circle().fill(isSpeaking ? Color.mint : Color.white.opacity(0.1))
+                .frame(width: 96 + amplitude * 26, height: 96 + amplitude * 26)
+                .shadow(color: isSpeaking ? Color.mint.opacity(0.60) : .clear, radius: 20)
                 .animation(.interactiveSpring(response: 0.12, dampingFraction: 0.7), value: amplitude)
-            VStack(spacing: 3) {
+            
+            VStack(spacing: 4) {
                 Text(isSpeaking ? "Listening" : "Paused")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(isSpeaking ? .black : Color(white: 0.42))
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(isSpeaking ? .black : Color.white.opacity(0.6))
                 if wpm > 0 {
-                    Text("\(wpm) WPM").font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(isSpeaking ? Color.black.opacity(0.55) : Color(white: 0.32))
+                    Text("\(wpm) WPM").font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(isSpeaking ? Color.black.opacity(0.6) : Color.white.opacity(0.4))
                 }
             }
         }
@@ -448,27 +465,31 @@ enum LiveCoachTip {
 struct LiveCoachBanner: View {
     let tip: LiveCoachTip
     var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: tip.icon)
-                .font(.system(size: 18, weight: .medium))
-                .foregroundStyle(tip.color).symbolRenderingMode(.hierarchical).frame(width: 28)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("COACH").font(.system(size: 9, weight: .black))
+        HStack(spacing: 14) {
+            ZStack {
+                Circle().fill(tip.color.opacity(0.2)).frame(width: 36, height: 36)
+                Image(systemName: tip.icon)
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(tip.color)
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                Text("COACH").font(.system(size: 10, weight: .heavy))
                     .foregroundStyle(tip.color).tracking(1.5)
-                Text(tip.message).font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.85))
+                Text(tip.message).font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.95))
             }
             Spacer()
         }
-        .padding(.horizontal, 14).padding(.vertical, 11)
-        .background(tip.color.opacity(0.10))
-        .clipShape(RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14)
-            .strokeBorder(tip.color.opacity(0.25), lineWidth: 1))
+        .padding(.horizontal, 16).padding(.vertical, 14)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+        .overlay(RoundedRectangle(cornerRadius: 18)
+            .strokeBorder(tip.color.opacity(0.4), lineWidth: 1))
+        .shadow(color: tip.color.opacity(0.15), radius: 12, y: 6)
     }
 }
 
-// Compatibility stubs (engine still references these)
+// Compatibility stubs
 struct WordWatchView: View {
     let entries: [WordFrequencyEntry]; let cogLoad: Bool
     var body: some View { EmptyView() }
