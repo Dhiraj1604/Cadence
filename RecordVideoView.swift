@@ -1,12 +1,9 @@
 // RecordVideoView.swift
 // Cadence — iOS 26 Native
-// FULLY REWRITTEN:
-//   • Permissions requested IMMEDIATELY on appear — no waiting for button tap
-//   • AVCaptureSession properly initialized with front camera + microphone
-//   • After recording: video plays back with AVPlayer so user can review their eye contact
-//   • Speech analysis runs in parallel with playback setup
-//   • Eye contact coaching annotations shown during playback
-//   • Vision face detection on sampled frames to give eye contact score
+// FIXED:
+//   • RecordCameraPreview: black screen fix — replaced UIView with CameraPreviewUIView subclass
+//     that sets previewLayer.frame in layoutSubviews() (after bounds are real, not zero)
+//   • VideoPlayerView: same fix — playerLayer.frame set in layoutSubviews()
 
 import SwiftUI
 @preconcurrency import AVFoundation
@@ -21,7 +18,7 @@ struct VideoAnalysisResult: Equatable {
     let wpm:              Int
     let fillerCount:      Int
     let duration:         TimeInterval
-    let eyeContactScore:  Int     // 0–100 estimated from face detection
+    let eyeContactScore:  Int
 
     static let empty = VideoAnalysisResult(
         transcript: "", wordCount: 0, wpm: 0,
@@ -72,9 +69,9 @@ struct VideoAnalysisResult: Equatable {
 class VideoRecorder: NSObject, ObservableObject {
     @Published var permissionStatus: PermissionStatus = .unknown
     @Published var isRecording       = false
-    @Published var recordedURL:       URL?                   = nil
-    @Published var recordingDuration: TimeInterval           = 0
-    @Published var analysisResult:    VideoAnalysisResult?   = nil
+    @Published var recordedURL:       URL?                 = nil
+    @Published var recordingDuration: TimeInterval         = 0
+    @Published var analysisResult:    VideoAnalysisResult? = nil
     @Published var isAnalyzing        = false
     @Published var sessionStarted     = false
 
@@ -90,7 +87,7 @@ class VideoRecorder: NSObject, ObservableObject {
             .appendingPathComponent("cadence_rec_\(Int(Date().timeIntervalSince1970)).mov")
     }
 
-    // MARK: Permissions — called immediately on appear
+    // MARK: Permissions
 
     func requestPermissionsAndSetup() async {
         guard permissionStatus == .unknown else { return }
@@ -116,7 +113,6 @@ class VideoRecorder: NSObject, ObservableObject {
         session.beginConfiguration()
         session.sessionPreset = .high
 
-        // Front camera
         guard
             let videoDevice = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front),
             let videoInput  = try? AVCaptureDeviceInput(device: videoDevice),
@@ -127,19 +123,16 @@ class VideoRecorder: NSObject, ObservableObject {
         }
         session.addInput(videoInput)
 
-        // Microphone
         if let audioDevice = AVCaptureDevice.default(for: .audio),
            let audioInput  = try? AVCaptureDeviceInput(device: audioDevice),
            session.canAddInput(audioInput) {
             session.addInput(audioInput)
         }
 
-        // Movie output
         if session.canAddOutput(movieOutput) {
             session.addOutput(movieOutput)
         }
 
-        // Mirror preview (selfie-style)
         let layer = AVCaptureVideoPreviewLayer(session: session)
         layer.videoGravity = .resizeAspectFill
         if let conn = layer.connection, conn.isVideoMirroringSupported {
@@ -152,7 +145,6 @@ class VideoRecorder: NSObject, ObservableObject {
         previewLayer   = layer
         captureSession = session
 
-        // Start session on background thread
         Task.detached(priority: .userInitiated) {
             session.startRunning()
             await MainActor.run { self.sessionStarted = true }
@@ -184,8 +176,8 @@ class VideoRecorder: NSObject, ObservableObject {
     }
 
     func reset() {
-        recordedURL      = nil
-        analysisResult   = nil
+        recordedURL       = nil
+        analysisResult    = nil
         recordingDuration = 0
     }
 
@@ -210,7 +202,6 @@ class VideoRecorder: NSObject, ObservableObject {
         }
     }
 
-    // Speech analysis via SFSpeechRecognizer
     private func runSpeechAnalysis(on url: URL) async -> (transcript: String, wordCount: Int, wpm: Int, fillerCount: Int, duration: TimeInterval) {
         let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
         let request    = SFSpeechURLRecognitionRequest(url: url)
@@ -228,8 +219,8 @@ class VideoRecorder: NSObject, ObservableObject {
                     return
                 }
                 done = true
-                let text   = result.bestTranscription.formattedString
-                let words  = text.lowercased()
+                let text    = result.bestTranscription.formattedString
+                let words   = text.lowercased()
                     .components(separatedBy: .whitespacesAndNewlines)
                     .filter { !$0.isEmpty }
                 let fillers = words.filter {
@@ -242,20 +233,18 @@ class VideoRecorder: NSObject, ObservableObject {
         }
     }
 
-    // Eye contact estimation via Vision face landmark detection on sampled frames
     private func estimateEyeContact(from url: URL) async -> Int {
         let asset    = AVURLAsset(url: url)
         let duration = try? await asset.load(.duration)
         let secs     = duration.map { CMTimeGetSeconds($0) } ?? 0
         guard secs > 0 else { return 50 }
 
-        // Sample one frame every 2 seconds
         let generator = AVAssetImageGenerator(asset: asset)
         generator.appliesPreferredTrackTransform = true
         generator.requestedTimeToleranceBefore = CMTime(seconds: 0.5, preferredTimescale: 600)
         generator.requestedTimeToleranceAfter  = CMTime(seconds: 0.5, preferredTimescale: 600)
 
-        let sampleCount = max(3, Int(secs / 2))
+        let sampleCount  = max(3, Int(secs / 2))
         var facingFrames = 0
         var totalFrames  = 0
 
@@ -264,7 +253,6 @@ class VideoRecorder: NSObject, ObservableObject {
             guard let cgImage = try? generator.copyCGImage(at: t, actualTime: nil) else { continue }
             totalFrames += 1
 
-            // Run face detection
             let request = VNDetectFaceRectanglesRequest()
             let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
             try? handler.perform([request])
@@ -294,43 +282,67 @@ extension VideoRecorder: AVCaptureFileOutputRecordingDelegate {
     }
 }
 
-// MARK: - Camera Preview
+// MARK: - Camera Preview (FIXED: black screen)
+// Root cause: the old code did:
+//   layer.frame = CGRect(x:0, y:0, width: UIScreen.main.bounds.width, height: ...)
+// inside makeUIView(). At that moment UIView.bounds is ZERO — the view hasn't
+// been laid out yet. The layer gets stuck with a wrong frame and shows black.
+//
+// Fix: use a UIView subclass that overrides layoutSubviews().
+// layoutSubviews() is called AFTER AutoLayout gives the view its real size,
+// so previewLayer.frame = bounds is always correct.
 
 struct RecordCameraPreview: UIViewRepresentable {
     let recorder: VideoRecorder
-    func makeUIView(context: Context) -> UIView {
-        let view = UIView()
+
+    func makeUIView(context: Context) -> CameraPreviewUIView {
+        let view = CameraPreviewUIView()
         view.backgroundColor = .black
         view.clipsToBounds   = true
         if let layer = recorder.previewLayer {
-            layer.frame = CGRect(x: 0, y: 0, width: UIScreen.main.bounds.width, height: UIScreen.main.bounds.height)
+            view.previewLayer = layer
             view.layer.addSublayer(layer)
         }
         return view
     }
-    func updateUIView(_ uiView: UIView, context: Context) {
-        recorder.previewLayer?.frame = uiView.bounds
+
+    func updateUIView(_ uiView: CameraPreviewUIView, context: Context) {
+        // Handles the async case: permissions granted → session started → previewLayer set
+        if let layer = recorder.previewLayer, uiView.previewLayer == nil {
+            uiView.previewLayer = layer
+            uiView.layer.addSublayer(layer)
+            uiView.setNeedsLayout()
+        }
     }
 }
 
-// MARK: - Video Player View
+final class CameraPreviewUIView: UIView {
+    var previewLayer: AVCaptureVideoPreviewLayer?
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // bounds is real here — never zero
+        previewLayer?.frame = bounds
+    }
+}
+
+// MARK: - Video Player View (same fix applied)
 
 struct VideoPlayerView: UIViewRepresentable {
     let url: URL
 
-    func makeUIView(context: Context) -> UIView {
-        let view = UIView()
+    func makeUIView(context: Context) -> VideoPlayerUIView {
+        let view = VideoPlayerUIView()
         view.backgroundColor = .black
-        view.clipsToBounds = true
+        view.clipsToBounds   = true
 
         let player = AVPlayer(url: url)
         let layer  = AVPlayerLayer(player: player)
         layer.videoGravity = .resizeAspectFill
-        layer.frame = CGRect(x: 0, y: 0, width: UIScreen.main.bounds.width, height: 400)
+        view.playerLayer = layer
         view.layer.addSublayer(layer)
         player.play()
 
-        // Loop playback
         NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
             object: player.currentItem,
@@ -341,19 +353,24 @@ struct VideoPlayerView: UIViewRepresentable {
         }
 
         context.coordinator.player = player
-        context.coordinator.playerLayer = layer
         return view
     }
 
-    func updateUIView(_ uiView: UIView, context: Context) {
-        context.coordinator.playerLayer?.frame = uiView.bounds
-    }
+    func updateUIView(_ uiView: VideoPlayerUIView, context: Context) {}
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     class Coordinator: NSObject {
         var player: AVPlayer?
-        var playerLayer: AVPlayerLayer?
+    }
+}
+
+final class VideoPlayerUIView: UIView {
+    var playerLayer: AVPlayerLayer?
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        playerLayer?.frame = bounds
     }
 }
 
@@ -371,7 +388,6 @@ struct RecordVideoView: View {
 
                 switch recorder.permissionStatus {
                 case .unknown, .requesting:
-                    // Asking — show spinner
                     VStack(spacing: 16) {
                         ProgressView().tint(.mint).scaleEffect(1.3)
                         Text("Requesting camera & microphone access…")
@@ -381,7 +397,6 @@ struct RecordVideoView: View {
                     }
 
                 case .denied:
-                    // Denied — guide to settings
                     ContentUnavailableView {
                         Label("Camera Access Required", systemImage: "video.slash.fill")
                     } description: {
@@ -398,7 +413,6 @@ struct RecordVideoView: View {
 
                 case .granted:
                     if showAnalysis, let result = recorder.analysisResult {
-                        // Analysis results + video playback
                         VideoAnalysisView(
                             result: result,
                             videoURL: recorder.recordedURL,
@@ -410,7 +424,6 @@ struct RecordVideoView: View {
                         .transition(.move(edge: .bottom).combined(with: .opacity))
 
                     } else {
-                        // Camera viewfinder
                         CameraRecordingView(recorder: recorder)
                     }
                 }
@@ -436,7 +449,6 @@ struct RecordVideoView: View {
             }
         }
         .preferredColorScheme(.dark)
-        // Request permissions IMMEDIATELY on appear — no button tap required
         .task {
             await recorder.requestPermissionsAndSetup()
         }
@@ -512,11 +524,10 @@ struct CameraRecordingView: View {
                     .padding(.bottom, 16)
                 }
 
-                // Timer badge
                 if recorder.isRecording {
                     HStack(spacing: 6) {
                         Circle().fill(.red).frame(width: 7, height: 7)
-                            .opacity(recorder.isRecording ? 1 : 0)
+                            .opacity(recorder.isRecording ? 1.0 : 0)
                         Text(timeString(recorder.recordingDuration))
                             .font(.system(size: 15, weight: .semibold, design: .monospaced))
                             .foregroundStyle(.white)
@@ -528,7 +539,6 @@ struct CameraRecordingView: View {
                     .padding(.bottom, 12)
                 }
 
-                // Record button
                 Button {
                     withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
                         if recorder.isRecording { recorder.stopRecording() }
@@ -578,14 +588,12 @@ struct VideoAnalysisView: View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 0) {
 
-                // ── VIDEO PLAYBACK ────────────────────────
                 if let url = videoURL {
                     ZStack(alignment: .bottomLeading) {
                         VideoPlayerView(url: url)
                             .frame(height: 320)
                             .clipShape(RoundedRectangle(cornerRadius: 0))
 
-                        // Eye contact badge overlay
                         HStack(spacing: 6) {
                             Image(systemName: "eye.fill")
                                 .font(.system(size: 11, weight: .semibold))
@@ -603,7 +611,6 @@ struct VideoAnalysisView: View {
 
                 VStack(spacing: 16) {
 
-                    // ── TITLE ─────────────────────────────
                     VStack(spacing: 4) {
                         Text("Recording Analysis")
                             .font(.system(size: 26, weight: .bold))
@@ -614,7 +621,6 @@ struct VideoAnalysisView: View {
                     }
                     .padding(.top, 20)
 
-                    // ── METRICS GRID ──────────────────────
                     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
                         VideoMetricCard(
                             icon: "speedometer", title: "Pacing",
@@ -643,16 +649,18 @@ struct VideoAnalysisView: View {
                     }
                     .padding(.horizontal, 16)
 
-                    // ── EYE CONTACT TIP ───────────────────
                     EyeContactTipCard(score: result.eyeContactScore)
                         .padding(.horizontal, 16)
 
-                    // ── TRANSCRIPT ────────────────────────
                     if !result.transcript.isEmpty {
                         VStack(alignment: .leading, spacing: 10) {
                             HStack(spacing: 6) {
-                                Image(systemName: "text.quote").font(.system(size: 12)).foregroundStyle(.secondary)
-                                Text("Transcript").font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary)
+                                Image(systemName: "text.quote")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.secondary)
+                                Text("Transcript")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(.secondary)
                             }
                             Text(result.transcript)
                                 .font(.system(size: 14))
@@ -665,11 +673,12 @@ struct VideoAnalysisView: View {
                         .padding(.horizontal, 16)
                     }
 
-                    // ── DONE ──────────────────────────────
                     Button(action: onDismiss) {
                         HStack(spacing: 9) {
-                            Image(systemName: "arrow.counterclockwise").font(.system(size: 15, weight: .semibold))
-                            Text("Record Again").font(.system(size: 17, weight: .semibold))
+                            Image(systemName: "arrow.counterclockwise")
+                                .font(.system(size: 15, weight: .semibold))
+                            Text("Record Again")
+                                .font(.system(size: 17, weight: .semibold))
                         }
                         .foregroundStyle(.black)
                         .frame(maxWidth: .infinity).frame(height: 54)
@@ -691,6 +700,8 @@ struct VideoAnalysisView: View {
         .background(Color(red: 0.06, green: 0.06, blue: 0.08).ignoresSafeArea())
     }
 }
+
+// MARK: - Video Metric Card
 
 struct VideoMetricCard: View {
     let icon: String
@@ -727,6 +738,8 @@ struct VideoMetricCard: View {
         .accessibilityLabel("\(title): \(value). \(badge)")
     }
 }
+
+// MARK: - Eye Contact Tip Card
 
 struct EyeContactTipCard: View {
     let score: Int
@@ -774,6 +787,8 @@ struct EyeContactTipCard: View {
         .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(tip.color.opacity(0.18), lineWidth: 1))
     }
 }
+
+// MARK: - Analysis Metric Row
 
 struct AnalysisMetricRow: View {
     let symbol: String
