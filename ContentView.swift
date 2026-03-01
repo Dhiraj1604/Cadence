@@ -1,77 +1,65 @@
 // ContentView.swift
-// Cadence — SSC Edition
-// KEY CHANGE: .preferredColorScheme(.dark) at root ZStack level
-// This prevents ANY light-mode flash from List, NavigationStack, or sheets.
+// Cadence — Dark Green Mint Theme
 
 import SwiftUI
 
 struct ContentView: View {
     @StateObject private var session = SessionManager()
-    @AppStorage("cadence_onboarding_v3") private var hasSeenOnboarding = false
+    // Always show onboarding on every launch (State resets on app start)
+    @State private var hasSeenOnboarding = false
 
     var body: some View {
         ZStack {
-            if !hasSeenOnboarding {
-                OnboardingView {
-                    withAnimation(.easeInOut(duration: 0.6)) {
-                        hasSeenOnboarding = true
-                    }
-                }
-                .zIndex(10)
-                .transition(.opacity)
-            } else {
-                switch session.state {
-                case .idle:
-                    HomeHubView()
-                        .environmentObject(session)
-                        .transition(.opacity)
-
-                case .practicing:
-                    PracticeView()
-                        .environmentObject(session)
-                        .ignoresSafeArea()
-                        .transition(.asymmetric(
-                            insertion: .opacity.combined(with: .scale(scale: 1.02)),
-                            removal: .opacity
-                        ))
-
-                case .summary:
-                    SummaryView()
-                        .environmentObject(session)
-                        .transition(.asymmetric(
-                            insertion: .move(edge: .bottom),
-                            removal: .opacity
-                        ))
-                }
-            }
-        }
-        // GLOBAL DARK MODE — prevents all white/gray flashes from List, NavigationStack, sheets
-        .preferredColorScheme(.dark)
-        .animation(.easeInOut(duration: 0.45), value: hasSeenOnboarding)
-        .animation(.easeInOut(duration: 0.35), value: session.state)
-    }
-}
-
-// MARK: - Home Hub
-
-struct HomeHubView: View {
-    @EnvironmentObject var session: SessionManager
-
-    var body: some View {
-        TabView {
-            Tab("Practice", systemImage: "mic.fill") {
+            // ── MAIN TAB SHELL ─────────────────────────────────────────
+            TabView {
                 IdleView()
                     .environmentObject(session)
-            }
-            Tab("Read", systemImage: "text.page.fill") {
+                    .tabItem { Label("Practice", systemImage: "mic.fill") }
+                    .tag(0)
+
                 ReadPracticeView()
-            }
-            Tab("Progress", systemImage: "chart.line.uptrend.xyaxis") {
+                    .tabItem { Label("Read", systemImage: "doc.text.fill") }
+                    .tag(1)
+
                 InsightsView()
                     .environmentObject(session)
+                    .tabItem { Label("Insights", systemImage: "chart.xyaxis.line") }
+                    .tag(2)
+            }
+            .tint(Color.cadenceAccent)
+
+            // ── PRACTICE SESSION OVERLAY ───────────────────────────────
+            if session.state == .practicing {
+                PracticeView()
+                    .environmentObject(session)
+                    .ignoresSafeArea()
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .zIndex(10)
+            }
+
+            // ── SUMMARY OVERLAY ────────────────────────────────────────
+            if session.state == .summary {
+                SummaryView()
+                    .environmentObject(session)
+                    .ignoresSafeArea()
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .zIndex(10)
+            }
+
+            // ── ONBOARDING (first launch only) ─────────────────────────
+            if !hasSeenOnboarding {
+                OnboardingView(onComplete: {
+                    withAnimation(.easeInOut(duration: 0.5)) {
+                        hasSeenOnboarding = true
+                    }
+                })
+                .ignoresSafeArea()
+                .transition(.opacity)
+                .zIndex(20)
             }
         }
-        .tint(.mint)
-        .tabBarMinimizeBehavior(.onScrollDown)
+        .animation(.spring(response: 0.45, dampingFraction: 0.85), value: session.state)
+        .animation(.easeInOut(duration: 0.5), value: hasSeenOnboarding)
+        .preferredColorScheme(.dark)
     }
 }

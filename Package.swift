@@ -28,15 +28,14 @@ let package = Package(
             ],
             supportedInterfaceOrientations: [
                 .portrait,
-                .landscapeRight,
-                .landscapeLeft,
                 .portraitUpsideDown(.when(deviceFamilies: [.pad]))
             ],
             capabilities: [
                 .microphone(purposeString: "Cadence needs microphone access to analyze your speech volume and pacing in real-time."),
                 .speechRecognition(purposeString: "Cadence uses speech recognition locally to track filler words and calculate your words-per-minute."),
                 .camera(purposeString: "Cadence uses the camera entirely on-device to analyze your eye contact.")
-            ]
+            ],
+            appCategory: .productivity
         )
     ],
     targets: [
@@ -45,5 +44,5 @@ let package = Package(
             path: "."
         )
     ],
-    swiftLanguageVersions: [.v5]
+    swiftLanguageModes: [.v5]
 )

@@ -1,280 +1,266 @@
 // IdleView.swift
-// Cadence — iOS 26 Liquid Glass
+// Cadence — Dark Green Mint Home Screen
 
 import SwiftUI
 
 struct IdleView: View {
     @EnvironmentObject var session: SessionManager
-    @State private var orbRotation: Double = 0
-    @State private var pulse = false
-    @State private var dnaHeights: [CGFloat] = Array(repeating: 18, count: 18)
-
-    private let dnaColors: [Color] = [
-        .mint, .orange, .mint, .mint, .yellow, .mint,
-        .red, .mint, .mint, .orange, .mint, .mint,
-        .mint, .yellow, .mint, .orange, .mint, .mint
-    ]
+    @State private var dnaAppeared = false
+    @State private var showRecordVideo = false
+    @State private var appeared = false
 
     var body: some View {
         ZStack {
-            // ── Background ─────────────────────────────────────
-            LinearGradient(
-                colors: [
-                    Color(red: 0.04, green: 0.14, blue: 0.12),
-                    Color(red: 0.02, green: 0.07, blue: 0.06),
-                    Color.black
-                ],
-                startPoint: .top, endPoint: .bottom
-            )
-            .ignoresSafeArea()
+            Color.cadenceBG.ignoresSafeArea()
 
-            RadialGradient(
-                colors: [Color.mint.opacity(0.12), .clear],
-                center: UnitPoint(x: 0.5, y: 0.05),
-                startRadius: 0, endRadius: 260
-            )
-            .ignoresSafeArea()
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 0) {
 
-            VStack(spacing: 0) {
+                    // ── HEADER ──────────────────────────────────────────
+                    headerSection
+                        .padding(.top, 56)
+                        .padding(.horizontal, 24)
+                        .staggerIn(appeared, delay: 0.0)
 
-                // ── ORB + TITLE ─────────────────────────────────
-                VStack(spacing: 8) {
-                    ZStack {
-                        ForEach(0..<3, id: \.self) { i in
-                            Circle()
-                                .stroke(Color.mint.opacity(0.1 - Double(i) * 0.03), lineWidth: 1.5)
-                                .frame(width: CGFloat(66 + i * 20))
-                                .scaleEffect(pulse ? 1.0 : 0.88)
-                                .animation(
-                                    .easeInOut(duration: 2.6)
-                                    .repeatForever(autoreverses: true)
-                                    .delay(Double(i) * 0.45),
-                                    value: pulse
-                                )
-                        }
-                        Circle()
-                            .trim(from: 0, to: 0.25)
-                            .stroke(
-                                AngularGradient(colors: [Color.mint, .clear], center: .center),
-                                style: StrokeStyle(lineWidth: 2, lineCap: .round)
-                            )
-                            .frame(width: 64)
-                            .rotationEffect(.degrees(orbRotation))
-                        Circle()
-                            .fill(RadialGradient(
-                                colors: [Color.mint.opacity(0.2), .clear],
-                                center: .center, startRadius: 0, endRadius: 28
-                            ))
-                            .frame(width: 52)
-                        Image(systemName: "waveform.and.mic")
-                            .font(.system(size: 20, weight: .light))
-                            .foregroundStyle(LinearGradient(
-                                colors: [.white, .mint], startPoint: .top, endPoint: .bottom
-                            ))
-                    }
-                    .frame(height: 70)
+                    // ── SPEECH FLOW DNA CARD ─────────────────────────────
+                    dnaCard
+                        .padding(.horizontal, 20)
+                        .padding(.top, 20)
+                        .staggerIn(appeared, delay: 0.2)
 
-                    VStack(spacing: 4) {
-                        Text("Cadence")
-                            .font(.system(size: 32, weight: .bold, design: .rounded))
-                            .foregroundStyle(.white)
-                        Text("See the shape of your speech")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(Color.white.opacity(0.6))
-                    }
-                }
-                .padding(.top, 56)
-                .padding(.bottom, 20)
-
-                // ── SPEECH FLOW DNA — top ───────────────────────
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "waveform.path.ecg")
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(Color.white.opacity(0.6))
-                        Text("Speech Flow DNA")
-                            .font(.system(size: 13, weight: .bold))
-                            .foregroundStyle(Color.white.opacity(0.6))
-                        Spacer()
-                        Image(systemName: "sparkles")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.mint)
-                    }
-
-                    // Animated bars
-                    HStack(alignment: .bottom, spacing: 4) {
-                        ForEach(0..<dnaColors.count, id: \.self) { i in
-                            RoundedRectangle(cornerRadius: 4)
-                                .fill(dnaColors[i].gradient)
-                                .frame(maxWidth: .infinity)
-                                .frame(height: dnaHeights[i])
-                                .shadow(color: dnaColors[i].opacity(0.4), radius: 4)
-                        }
-                    }
-                    .frame(height: 44)
-
-                    // Legend
-                    HStack(spacing: 16) {
-                        ForEach([
-                            ("Confident", Color.mint),
-                            ("Filler",    Color.orange),
-                            ("Pause",     Color.yellow),
-                            ("Lost Flow", Color.red)
-                        ], id: \.0) { label, color in
-                            HStack(spacing: 5) {
-                                Circle().fill(color).frame(width: 6, height: 6)
-                                Text(label)
-                                    .font(.system(size: 11, weight: .medium))
-                                    .foregroundStyle(Color.white.opacity(0.6))
-                            }
-                        }
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
-                .background(.ultraThinMaterial)
-                .clipShape(RoundedRectangle(cornerRadius: 18))
-                .overlay(RoundedRectangle(cornerRadius: 18)
-                    .strokeBorder(Color.white.opacity(0.15), lineWidth: 0.5))
-                .padding(.horizontal, 20)
-                .padding(.bottom, 14)
-
-                // ── LIVE TELEMETRY HEADER ───────────────────────
-                HStack {
-                    Text("LIVE TELEMETRY")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(Color.white.opacity(0.5))
-                        .tracking(1.5)
-                    Spacer()
-                    HStack(spacing: 5) {
-                        Circle().fill(Color.mint).frame(width: 6, height: 6)
-                        Text("On-device")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundStyle(.mint)
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(Color.mint.opacity(0.15))
-                    .clipShape(Capsule())
-                    .overlay(Capsule().stroke(Color.mint.opacity(0.3), lineWidth: 0.5))
-                }
-                .padding(.horizontal, 24)
-                .padding(.bottom, 10)
-
-                // ── 2×2 FEATURE CARDS — below DNA ──────────────
-                LazyVGrid(columns: [
-                    GridItem(.flexible(), spacing: 12),
-                    GridItem(.flexible(), spacing: 12)
-                ], spacing: 12) {
-                    IdleFeatureCard(symbol: "speedometer",                 title: "Pacing",      subtitle: "Words / min",   color: .mint)
-                    IdleFeatureCard(symbol: "waveform.path",               title: "Rhythm",      subtitle: "Flow & pauses", color: .purple)
-                    IdleFeatureCard(symbol: "exclamationmark.bubble.fill", title: "Fillers",     subtitle: "Um, uh, like",  color: .orange)
-                    IdleFeatureCard(symbol: "eye.fill",                    title: "Eye Contact", subtitle: "Look up cues",  color: .cyan)
-                }
-                .padding(.horizontal, 20)
-
-                Spacer(minLength: 16)
-
-                // ── CTA BUTTONS ─────────────────────────────────
-                VStack(spacing: 12) {
-                    Button { session.startSession() } label: {
-                        HStack(spacing: 10) {
+                    // ── PRIMARY CTA ──────────────────────────────────────
+                    Button {
+                        session.startSession()
+                    } label: {
+                        HStack(spacing: 12) {
                             Image(systemName: "mic.fill")
-                                .font(.system(size: 16, weight: .bold))
+                                .font(.system(size: 18, weight: .semibold))
                             Text("Start Live Practice")
-                                .font(.system(size: 18, weight: .bold))
+                                .font(.system(size: 17, weight: .bold))
                         }
                         .foregroundStyle(.black)
                         .frame(maxWidth: .infinity)
-                        .frame(height: 56)
-                        .background(LinearGradient(
-                            colors: [Color(red: 0.2, green: 1.0, blue: 0.8), .mint],
-                            startPoint: .topLeading, endPoint: .bottomTrailing
-                        ))
-                        .clipShape(RoundedRectangle(cornerRadius: 18))
+                        .padding(.vertical, 18)
+                        .background(LinearGradient.cadencePrimary)
+                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                         .shadow(color: Color.mint.opacity(0.35), radius: 16, y: 6)
                     }
                     .buttonStyle(.plain)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 24)
+                    .staggerIn(appeared, delay: 0.3)
 
-                    Button {} label: {
+                    // ── SECONDARY CTA ────────────────────────────────────
+                    Button {
+                        showRecordVideo = true
+                    } label: {
                         HStack(spacing: 10) {
                             Image(systemName: "video.fill")
                                 .font(.system(size: 15, weight: .semibold))
                             Text("Record & Review")
-                                .font(.system(size: 16, weight: .semibold))
+                                .font(.system(size: 15, weight: .semibold))
                         }
-                        .foregroundStyle(Color.white.opacity(0.9))
+                        .foregroundStyle(Color.mint)
                         .frame(maxWidth: .infinity)
-                        .frame(height: 52)
-                        .background(.ultraThinMaterial)
-                        .clipShape(RoundedRectangle(cornerRadius: 18))
-                        .overlay(RoundedRectangle(cornerRadius: 18)
-                            .strokeBorder(Color.white.opacity(0.15), lineWidth: 0.5))
+                        .padding(.vertical, 14)
+                        .background(Color.mint.opacity(0.10))
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .strokeBorder(Color.mint.opacity(0.25), lineWidth: 1)
+                        )
                     }
                     .buttonStyle(.plain)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 10)
+                    .staggerIn(appeared, delay: 0.35)
 
-                    Text("Microphone · Camera · On-device only")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(Color.white.opacity(0.4))
+                    // ── PRIVACY FOOTER ───────────────────────────────────
+                    HStack(spacing: 6) {
+                        Image(systemName: "lock.fill")
+                            .font(.caption2)
+                            .foregroundStyle(Color.mint.opacity(0.4))
+                        Text("Microphone · Camera · On-device only")
+                            .font(.caption2)
+                            .foregroundStyle(Color.white.opacity(0.25))
+                    }
+                    .padding(.top, 16)
+                    .padding(.bottom, 40)
+                    .staggerIn(appeared, delay: 0.4)
                 }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 24)
             }
         }
+        .sheet(isPresented: $showRecordVideo) {
+            RecordVideoView()
+        }
         .onAppear {
-            pulse = true
-            withAnimation(.linear(duration: 10).repeatForever(autoreverses: false)) {
-                orbRotation = 360
+            // Reset first so animation always plays fresh when returning to home
+            appeared = false
+            dnaAppeared = false
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                appeared = true
             }
-            for i in 0..<dnaHeights.count {
-                DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.04) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                dnaAppeared = true
+            }
+        }
+        .onDisappear {
+            // Reset so animation is ready to play again on next appear
+            appeared = false
+            dnaAppeared = false
+        }
+    }
+
+    // MARK: - Header
+    private var headerSection: some View {
+        VStack(spacing: 16) {
+            // The ZStack needs a fixed frame large enough to show the rings
+            // at their peak expansion WITHOUT overflowing into the "Cadence" text.
+            // Rings scale from 84pt → 84*1.75 = 147pt, so 160pt frame is safe.
+            ZStack {
+                PulseRing(baseSize: 84, delay: 0.0)
+                PulseRing(baseSize: 84, delay: 0.9)
+
+                // Core filled orb
+                Circle()
+                    .fill(
+                        RadialGradient(
+                            colors: [Color.mint.opacity(0.30), Color.mint.opacity(0.07)],
+                            center: .center, startRadius: 4, endRadius: 44
+                        )
+                    )
+                    .frame(width: 84, height: 84)
+
+                // "waveform" available from iOS 13+
+                Image(systemName: "waveform")
+                    .font(.system(size: 30, weight: .light))
+                    .foregroundStyle(LinearGradient.cadencePrimary)
+            }
+            .frame(width: 160, height: 160) // contains rings so they never overlap text below
+
+            VStack(spacing: 6) {
+                Text("Cadence")
+                    .font(.system(size: 34, weight: .bold, design: .default))
+                    .foregroundStyle(.white)
+
+                Text("See the shape of your speech")
+                    .font(.system(size: 15))
+                    .foregroundStyle(Color.white.opacity(0.45))
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.bottom, 4)
+    }
+
+    // MARK: - DNA Preview Card
+    private var dnaCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                HStack(spacing: 8) {
+                    Image(systemName: "waveform.path.ecg")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Color.mint)
+                    Text("Speech Flow DNA")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+                Spacer()
+                Text("EXAMPLE")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(Color.mint)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Color.mint.opacity(0.12))
+                    .clipShape(Capsule())
+            }
+
+            Text("Generated after each session — unique to you")
+                .font(.caption)
+                .foregroundStyle(Color.white.opacity(0.38))
+
+            HStack(alignment: .bottom, spacing: 5) {
+                ForEach(0..<24, id: \.self) { index in
+                    RoundedRectangle(cornerRadius: 3, style: .continuous)
+                        .fill(dnaBarColor(for: index))
+                        // Bars animate in once on appear, then stay perfectly still
+                        .frame(height: dnaAppeared ? dnaBarHeight(for: index) : 3)
+                        .animation(
+                            .spring(response: 0.55, dampingFraction: 0.7)
+                                .delay(Double(index) * 0.035),
+                            value: dnaAppeared
+                        )
+                }
+            }
+            .frame(height: 56)
+            .frame(maxWidth: .infinity)
+
+            HStack(spacing: 14) {
+                dnaLegend(color: Color.mint,   label: "Confident")
+                dnaLegend(color: Color.orange, label: "Filler")
+                dnaLegend(color: Color.yellow, label: "Pause")
+                dnaLegend(color: Color.red,    label: "Lost Flow")
+            }
+        }
+        .padding(18)
+        .background(Color.cadenceCard)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(Color.mint.opacity(0.12), lineWidth: 1)
+        )
+    }
+
+    private func dnaLegend(color: Color, label: String) -> some View {
+        HStack(spacing: 4) {
+            RoundedRectangle(cornerRadius: 2)
+                .fill(color)
+                .frame(width: 9, height: 9)
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(Color.white.opacity(0.4))
+        }
+    }
+
+    private func dnaBarHeight(for index: Int) -> CGFloat {
+        let heights: [CGFloat] = [38, 56, 42, 28, 18, 14, 10, 33, 48, 42, 18, 14, 28, 42, 42, 28, 18, 14, 38, 56, 30, 22, 44, 36]
+        return heights[index % heights.count]
+    }
+
+    private func dnaBarColor(for index: Int) -> Color {
+        let colors: [Color] = [
+            Color.mint, Color.mint, Color.mint, Color.orange, Color.orange, Color.yellow,
+            Color.mint, Color.mint, Color.mint, Color.red,    Color.red,    Color.mint,
+            Color.mint, Color.mint, Color.mint, Color.orange, Color.mint,   Color.mint,
+            Color.mint, Color.mint, Color.mint, Color.yellow, Color.mint,   Color.mint
+        ]
+        return colors[index % colors.count]
+    }
+}
+
+// MARK: - Pulse Ring
+// Each ring owns its own @State — they animate independently.
+// Scale 1.0 → 1.75 keeps rings visually close to the orb (feels like circling).
+// autoreverses: false = expand + fade → snap back instantly → repeat (sonar ping).
+struct PulseRing: View {
+    let baseSize: CGFloat
+    let delay: Double
+
+    @State private var animating = false
+
+    var body: some View {
+        Circle()
+            .stroke(Color.mint.opacity(animating ? 0 : 0.50), lineWidth: 1.5)
+            .frame(width: baseSize, height: baseSize)
+            .scaleEffect(animating ? 1.75 : 1.0)
+            .onAppear {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
                     withAnimation(
-                        .easeInOut(duration: 1.0 + Double(i % 4) * 0.3)
-                        .repeatForever(autoreverses: true)
+                        .easeOut(duration: 1.6)
+                        .repeatForever(autoreverses: false)
                     ) {
-                        dnaHeights[i] = CGFloat.random(in: 8...(i % 3 == 0 ? 40 : 28))
+                        animating = true
                     }
                 }
             }
-        }
     }
 }
-
-// MARK: - Feature Card
-struct IdleFeatureCard: View {
-    let symbol: String
-    let title: String
-    let subtitle: String
-    let color: Color
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            ZStack {
-                Circle()
-                    .fill(color.opacity(0.2))
-                    .frame(width: 40, height: 40)
-                Image(systemName: symbol)
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(color)
-                    .symbolRenderingMode(.hierarchical)
-            }
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(.white)
-                Text(subtitle)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Color.white.opacity(0.6))
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
-        .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 18))
-        .overlay(RoundedRectangle(cornerRadius: 18)
-            .strokeBorder(Color.white.opacity(0.15), lineWidth: 0.5))
-    }
-}
-
-typealias FeatureCard = IdleFeatureCard

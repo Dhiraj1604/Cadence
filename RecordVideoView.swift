@@ -1,9 +1,5 @@
 // RecordVideoView.swift
 // Cadence — iOS 26 Native
-// FIXED:
-//   • RecordCameraPreview: black screen fix — replaced UIView with CameraPreviewUIView subclass
-//     that sets previewLayer.frame in layoutSubviews() (after bounds are real, not zero)
-//   • VideoPlayerView: same fix — playerLayer.frame set in layoutSubviews()
 
 import SwiftUI
 @preconcurrency import AVFoundation
@@ -56,9 +52,9 @@ struct VideoAnalysisResult: Equatable {
     }
     var eyeContactColor: Color {
         switch eyeContactScore {
-        case 70...100: return .mint
+        case 70...100: return Color.cadenceAccent
         case 45..<70:  return .yellow
-        default:       return .orange
+        default:       return Color.cadenceWarn
         }
     }
 }
@@ -244,20 +240,33 @@ class VideoRecorder: NSObject, ObservableObject {
         generator.requestedTimeToleranceBefore = CMTime(seconds: 0.5, preferredTimescale: 600)
         generator.requestedTimeToleranceAfter  = CMTime(seconds: 0.5, preferredTimescale: 600)
 
-        let sampleCount  = max(3, Int(secs / 2))
+        let sampleCount = max(3, Int(secs / 2))
+        let times: [NSValue] = (0..<sampleCount).map { i in
+            NSValue(time: CMTime(seconds: Double(i) * secs / Double(sampleCount),
+                                 preferredTimescale: 600))
+        }
+
+        // generateCGImagesAsynchronously replaces the deprecated copyCGImage(at:actualTime:)
         var facingFrames = 0
         var totalFrames  = 0
 
-        for i in 0..<sampleCount {
-            let t = CMTime(seconds: Double(i) * secs / Double(sampleCount), preferredTimescale: 600)
-            guard let cgImage = try? generator.copyCGImage(at: t, actualTime: nil) else { continue }
-            totalFrames += 1
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            var remaining = times.count
+            guard remaining > 0 else { continuation.resume(); return }
 
-            let request = VNDetectFaceRectanglesRequest()
-            let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
-            try? handler.perform([request])
-            if let faces = request.results, !faces.isEmpty {
-                facingFrames += 1
+            generator.generateCGImagesAsynchronously(forTimes: times) { _, cgImage, _, result, _ in
+                defer {
+                    remaining -= 1
+                    if remaining == 0 { continuation.resume() }
+                }
+                guard result == .succeeded, let cgImage else { return }
+                totalFrames += 1
+                let request = VNDetectFaceRectanglesRequest()
+                let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+                try? handler.perform([request])
+                if let faces = request.results, !faces.isEmpty {
+                    facingFrames += 1
+                }
             }
         }
 
@@ -380,6 +389,7 @@ struct RecordVideoView: View {
     @StateObject private var recorder = VideoRecorder()
     @State private var showAnalysis   = false
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject var session: SessionManager
 
     var body: some View {
         NavigationStack {
@@ -389,7 +399,7 @@ struct RecordVideoView: View {
                 switch recorder.permissionStatus {
                 case .unknown, .requesting:
                     VStack(spacing: 16) {
-                        ProgressView().tint(.mint).scaleEffect(1.3)
+                        ProgressView().tint(Color.cadenceAccent).scaleEffect(1.3)
                         Text("Requesting camera & microphone access…")
                             .font(.system(size: 14))
                             .foregroundStyle(.secondary)
@@ -408,7 +418,7 @@ struct RecordVideoView: View {
                             }
                         }
                         .buttonStyle(.borderedProminent)
-                        .tint(.mint)
+                        .tint(Color.cadenceAccent)
                     }
 
                 case .granted:
@@ -443,12 +453,20 @@ struct RecordVideoView: View {
                 }
             }
             .onChange(of: recorder.analysisResult) { _, result in
-                if result != nil {
+                if let result = result {
+                    // Auto-save immediately — no manual prompt
+                    session.saveVideoSession(
+                        wpm: result.wpm,
+                        fillers: result.fillerCount,
+                        transcript: result.transcript,
+                        eyeContactScore: result.eyeContactScore,
+                        duration: recorder.recordingDuration
+                    )
                     withAnimation(.spring()) { showAnalysis = true }
                 }
             }
         }
-        .preferredColorScheme(.dark)
+        
         .task {
             await recorder.requestPermissionsAndSetup()
         }
@@ -470,7 +488,7 @@ struct CameraRecordingView: View {
             } else {
                 Color.black.ignoresSafeArea()
                 VStack(spacing: 12) {
-                    ProgressView().tint(.mint)
+                    ProgressView().tint(Color.cadenceAccent)
                     Text("Starting camera…")
                         .font(.system(size: 14))
                         .foregroundStyle(.secondary)
@@ -502,7 +520,7 @@ struct CameraRecordingView: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 9)
                 .background(.ultraThinMaterial, in: Capsule())
-                .environment(\.colorScheme, .dark)
+                
                 .padding(.top, 8)
                 Spacer()
             }
@@ -513,14 +531,14 @@ struct CameraRecordingView: View {
 
                 if recorder.isAnalyzing {
                     VStack(spacing: 10) {
-                        ProgressView().tint(.mint).scaleEffect(1.2)
+                        ProgressView().tint(Color.cadenceAccent).scaleEffect(1.2)
                         Text("Analyzing your speech & eye contact…")
                             .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(.white.opacity(0.8))
                     }
                     .padding(20)
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
-                    .environment(\.colorScheme, .dark)
+                    
                     .padding(.bottom, 16)
                 }
 
@@ -535,7 +553,7 @@ struct CameraRecordingView: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 9)
                     .background(.regularMaterial, in: Capsule())
-                    .environment(\.colorScheme, .dark)
+                    
                     .padding(.bottom, 12)
                 }
 
@@ -591,81 +609,74 @@ struct VideoAnalysisView: View {
                 if let url = videoURL {
                     ZStack(alignment: .bottomLeading) {
                         VideoPlayerView(url: url)
-                            .frame(height: 320)
-                            .clipShape(RoundedRectangle(cornerRadius: 0))
+                            .frame(height: 300)
 
-                        HStack(spacing: 6) {
-                            Image(systemName: "eye.fill")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(result.eyeContactColor)
-                            Text("\(result.eyeContactScore)% eye contact")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(.white)
+                        HStack(spacing: 8) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "eye.fill")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(result.eyeContactColor)
+                                Text("\(result.eyeContactScore)% eye contact")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(.white)
+                            }
+                            .padding(.horizontal, 12).padding(.vertical, 7)
+                            .background(.black.opacity(0.65), in: Capsule())
+
+                            Spacer()
+
+                            // Auto-saved badge
+                            HStack(spacing: 5) {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(.mint)
+                                Text("Saved to Insights")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(.white)
+                            }
+                            .padding(.horizontal, 11).padding(.vertical, 7)
+                            .background(.black.opacity(0.65), in: Capsule())
                         }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 7)
-                        .background(.black.opacity(0.65), in: Capsule())
-                        .padding(14)
+                        .padding(12)
                     }
                 }
 
                 VStack(spacing: 16) {
-
                     VStack(spacing: 4) {
                         Text("Recording Analysis")
-                            .font(.system(size: 26, weight: .bold))
-                            .foregroundStyle(.white)
+                            .font(.system(size: 26, weight: .bold)).foregroundStyle(.white)
                         Text(String(format: "%.0f seconds recorded", duration))
-                            .font(.system(size: 13))
-                            .foregroundStyle(.secondary)
+                            .font(.system(size: 13)).foregroundStyle(.secondary)
                     }
                     .padding(.top, 20)
 
                     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                        VideoMetricCard(
-                            icon: "speedometer", title: "Pacing",
+                        VideoMetricCard(icon: "speedometer", title: "Pacing",
                             value: result.wpm == 0 ? "—" : "\(result.wpm) WPM",
                             badge: result.wpmBadge,
-                            color: (result.wpm >= 120 && result.wpm <= 160) ? .mint : .orange
-                        )
-                        VideoMetricCard(
-                            icon: "exclamationmark.bubble.fill", title: "Fillers",
-                            value: "\(result.fillerCount)",
-                            badge: result.fillerBadge,
-                            color: result.fillerCount <= 3 ? .mint : .orange
-                        )
-                        VideoMetricCard(
-                            icon: "eye.fill", title: "Eye Contact",
-                            value: "\(result.eyeContactScore)%",
-                            badge: result.eyeContactBadge,
-                            color: result.eyeContactColor
-                        )
-                        VideoMetricCard(
-                            icon: "clock.fill", title: "Duration",
+                            color: (result.wpm >= 120 && result.wpm <= 160) ? Color.cadenceAccent : Color.cadenceWarn)
+                        VideoMetricCard(icon: "exclamationmark.bubble.fill", title: "Fillers",
+                            value: "\(result.fillerCount)", badge: result.fillerBadge,
+                            color: result.fillerCount <= 3 ? Color.cadenceAccent : Color.cadenceWarn)
+                        VideoMetricCard(icon: "eye.fill", title: "Eye Contact",
+                            value: "\(result.eyeContactScore)%", badge: result.eyeContactBadge,
+                            color: result.eyeContactColor)
+                        VideoMetricCard(icon: "clock.fill", title: "Duration",
                             value: String(format: "%.0fs", duration),
-                            badge: "\(result.wordCount) words",
-                            color: .cyan
-                        )
+                            badge: "\(result.wordCount) words", color: .cyan)
                     }
                     .padding(.horizontal, 16)
 
-                    EyeContactTipCard(score: result.eyeContactScore)
-                        .padding(.horizontal, 16)
+                    EyeContactTipCard(score: result.eyeContactScore).padding(.horizontal, 16)
 
                     if !result.transcript.isEmpty {
                         VStack(alignment: .leading, spacing: 10) {
                             HStack(spacing: 6) {
-                                Image(systemName: "text.quote")
-                                    .font(.system(size: 12))
-                                    .foregroundStyle(.secondary)
-                                Text("Transcript")
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .foregroundStyle(.secondary)
+                                Image(systemName: "text.quote").font(.system(size: 12)).foregroundStyle(.secondary)
+                                Text("Transcript").font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary)
                             }
                             Text(result.transcript)
-                                .font(.system(size: 14))
-                                .foregroundStyle(Color(white: 0.70))
-                                .lineSpacing(4)
+                                .font(.system(size: 14)).foregroundStyle(Color(white: 0.70)).lineSpacing(4)
                         }
                         .padding(16)
                         .background(Color.white.opacity(0.05))
@@ -674,30 +685,18 @@ struct VideoAnalysisView: View {
                     }
 
                     Button(action: onDismiss) {
-                        HStack(spacing: 9) {
-                            Image(systemName: "arrow.counterclockwise")
-                                .font(.system(size: 15, weight: .semibold))
-                            Text("Record Again")
-                                .font(.system(size: 17, weight: .semibold))
-                        }
-                        .foregroundStyle(.black)
-                        .frame(maxWidth: .infinity).frame(height: 54)
-                        .background(
-                            LinearGradient(
-                                colors: [Color(red: 0.20, green: 0.98, blue: 0.78), Color(red: 0.08, green: 0.76, blue: 0.60)],
-                                startPoint: .topLeading, endPoint: .bottomTrailing
-                            )
-                        )
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
-                        .shadow(color: .mint.opacity(0.30), radius: 14, y: 4)
+                        Text("Record Again")
+                            .font(.system(size: 16, weight: .semibold)).foregroundStyle(.black)
+                            .frame(maxWidth: .infinity).frame(height: 52)
+                            .background(LinearGradient.cadencePrimary)
+                            .clipShape(RoundedRectangle(cornerRadius: 14))
                     }
                     .buttonStyle(.plain)
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 40)
+                    .padding(.horizontal, 16).padding(.bottom, 48)
                 }
             }
         }
-        .background(Color(red: 0.06, green: 0.06, blue: 0.08).ignoresSafeArea())
+        .background(Color.cadenceBG.ignoresSafeArea())
     }
 }
 
@@ -747,16 +746,16 @@ struct EyeContactTipCard: View {
     private var tip: (icon: String, color: Color, title: String, message: String) {
         switch score {
         case 80...100:
-            return ("eye.fill", .mint, "Excellent Eye Contact",
+            return ("eye.fill", Color.cadenceAccent, "Excellent Eye Contact",
                     "You maintained strong eye contact. This builds trust and confidence with your audience.")
         case 60..<80:
-            return ("eye", .yellow, "Good Eye Contact",
+            return ("eye", Color.yellow, "Good Eye Contact",
                     "Look toward the camera lens more — treat it as your audience's eyes. Avoid glancing at your own image.")
         case 40..<60:
-            return ("eye.slash", .orange, "Improve Eye Contact",
+            return ("eye.slash", Color.cadenceWarn, "Improve Eye Contact",
                     "Try placing a sticky dot next to the camera lens as a target. Aim to look there 70–80% of the time.")
         default:
-            return ("eye.slash.fill", .red, "Focus on Eye Contact",
+            return ("eye.slash.fill", Color.red, "Focus on Eye Contact",
                     "Eye contact is critical for credibility. Practice looking directly at the camera lens, not the screen.")
         }
     }
