@@ -29,16 +29,23 @@
     <key>NSCameraUsageDescription</key>
     <string>Cadence uses the camera to track your eye contact and body language during recorded practice sessions.</string>
 
-    <!-- App transport & orientation -->
+    <!-- Orientation: all orientations declared to satisfy Apple validator.
+         Portrait lock is enforced at the scene level via SwiftUI
+         .supportedInterfaceOrientations(.portrait) in CadenceApp.swift -->
     <key>UISupportedInterfaceOrientations</key>
     <array>
         <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationPortraitUpsideDown</string>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
     </array>
 
     <key>UISupportedInterfaceOrientations~ipad</key>
     <array>
         <string>UIInterfaceOrientationPortrait</string>
         <string>UIInterfaceOrientationPortraitUpsideDown</string>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
     </array>
 
     <key>UILaunchScreen</key>

@@ -143,11 +143,8 @@ struct RecordVideoView: View {
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button { dismiss() } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 22))
-                            .symbolRenderingMode(.hierarchical)
-                            .foregroundStyle(.white.opacity(0.7))
+                    FitnessNavButton(icon: "xmark", size: 34, iconSize: 13) {
+                        dismiss()
                     }
                     .accessibilityLabel("Close")
                 }
@@ -218,7 +215,7 @@ struct CameraRecordingView: View {
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 9)
-                .background(.ultraThinMaterial, in: Capsule())
+                .cadenceStatusPill()
                 
                 .padding(.top, 8)
                 Spacer()
@@ -251,7 +248,7 @@ struct CameraRecordingView: View {
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 9)
-                    .background(.regularMaterial, in: Capsule())
+                    .cadenceStatusPill()
                     
                     .padding(.bottom, 12)
                 }

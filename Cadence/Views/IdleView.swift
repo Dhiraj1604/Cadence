@@ -27,15 +27,8 @@ struct IdleView: View {
                         session.startSession()
                     } label: {
                         Label("Start Live Practice", systemImage: "mic.fill")
-                            .font(.headline)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 6)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.mint)
-                    .controlSize(.large)
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .shadow(color: Color.mint.opacity(0.30), radius: 12, y: 4)
+                    .buttonStyle(CadencePrimaryButtonStyle())
                     .staggerIn(appeared, delay: 0.22)
 
                     // ── SECONDARY CTA ────────────────────────────────────
@@ -43,14 +36,8 @@ struct IdleView: View {
                         showRecordVideo = true
                     } label: {
                         Label("Record & Review", systemImage: "video.fill")
-                            .font(.headline)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 6)
                     }
-                    .buttonStyle(.bordered)
-                    .tint(.mint)
-                    .controlSize(.large)
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .buttonStyle(CadenceSecondaryButtonStyle())
                     .staggerIn(appeared, delay: 0.28)
 
                     // ── PRIVACY NOTE ─────────────────────────────────────
@@ -125,7 +112,7 @@ struct IdleView: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
                 Label("Speech Flow DNA", systemImage: "waveform.path.ecg")
-                    .font(.subheadline.weight(.semibold))
+                    .font(.headline)
                     .foregroundStyle(.primary)
                 Spacer()
                 Text("EXAMPLE")

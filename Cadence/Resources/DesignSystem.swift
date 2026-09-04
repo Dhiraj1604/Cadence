@@ -3,14 +3,29 @@
 // All colors reference UIKit/SwiftUI system semantics for automatic dark/light & tint support.
 
 import SwiftUI
+import UIKit
+
+// MARK: - Unified Layout Constants
+// Single source of truth for all spacing, corner radii, and sizing across the app.
+// Matches Apple Health / Fitness app proportions for iOS-native feel.
+enum CadenceLayout {
+    /// Standard corner radius for all Apple HIG grouped cards
+    static let cardCornerRadius: CGFloat = 12
+    /// Standard corner radius for all buttons
+    static let buttonCornerRadius: CGFloat = 14
+    /// Standard primary button height (matches Apple Fitness CTA buttons)
+    static let buttonHeight: CGFloat = 56
+    /// Minimum height for metric tiles so Words/Min, Fillers, Rhythm are always equal
+    static let metricTileMinHeight: CGFloat = 120
+}
 
 // MARK: - System Background Aliases
 // These forward to UIKit semantic colors so they respect dark/light mode automatically.
 extension Color {
-    /// Primary app background — black in dark mode, white in light mode
+    /// Primary app background (Forced dark mode preferred for fitness aesthetic)
     static let cadenceBG        = Color(.systemBackground)
-    /// Lifted card surface — dark gray in dark mode, very light gray in light mode
-    static let cadenceCard      = Color(.secondarySystemBackground)
+    /// Lifted card surface (Exact Apple HIG grouped list card color)
+    static let cadenceCard      = Color(.secondarySystemGroupedBackground)
     /// Nested element surface
     static let cadenceCardLight = Color(.tertiarySystemBackground)
 }
@@ -51,17 +66,48 @@ extension LinearGradient {
     )
 }
 
-// MARK: - iOS 26 Native Glass Card Modifier
-// Uses .regularMaterial so the system background shows through — creating the genuine
-// frosted-glass effect Apple uses in Control Center, Spotlight, and widgets.
+// MARK: - Native Apple Navigation & Toolbar Buttons (Fitness App Style)
+struct FitnessNavButton: View {
+    let icon: String
+    var size: CGFloat = 40
+    var iconSize: CGFloat = 17
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            ZStack {
+                Circle()
+                    .fill(Color(.secondarySystemFill)) // Subtle translucent grey on black
+                
+                Image(systemName: icon)
+                    .font(.system(size: iconSize, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+            .frame(width: size, height: size)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Native Apple Floating Pill Bar (For grouped actions)
+struct FitnessPillBar<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        HStack(spacing: 12) {
+            content
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(Color(.secondarySystemFill), in: Capsule())
+    }
+}
+
+// MARK: - iOS 26 Native Card Modifier
 struct CadenceCardModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(.quaternary, lineWidth: 0.5)
-            )
+            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: CadenceLayout.cardCornerRadius, style: .continuous))
     }
 }
 
@@ -69,21 +115,40 @@ extension View {
     func cadenceCard() -> some View {
         modifier(CadenceCardModifier())
     }
+    
+    // For elements like status pills (e.g. Timer, Eye contact hint)
+    func cadenceStatusPill() -> some View {
+        self.background(Color(.secondarySystemFill), in: Capsule())
+    }
 }
 
-// MARK: - Primary Button Style (Mint gradient fill)
+// MARK: - Primary Button Style (Native vibrant fill)
 struct CadencePrimaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.headline)
-            .foregroundStyle(.white)
+            .foregroundStyle(.black)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 16)
-            .background(
-                LinearGradient.cadencePrimary
-                    .opacity(configuration.isPressed ? 0.78 : 1.0)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .frame(height: CadenceLayout.buttonHeight)
+            .background(Color.cadenceAccent) // Solid native primary color
+            .clipShape(RoundedRectangle(cornerRadius: CadenceLayout.buttonCornerRadius, style: .continuous))
+            .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
+            .animation(.easeInOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
+// MARK: - Secondary Button Style (Native subtle tint style)
+struct CadenceSecondaryButtonStyle: ButtonStyle {
+    var tintColor: Color = .mint
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.headline)
+            .foregroundStyle(tintColor)
+            .frame(maxWidth: .infinity)
+            .frame(height: CadenceLayout.buttonHeight)
+            .background(tintColor.opacity(0.12))
+            .clipShape(RoundedRectangle(cornerRadius: CadenceLayout.buttonCornerRadius, style: .continuous))
             .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
             .animation(.easeInOut(duration: 0.12), value: configuration.isPressed)
     }
@@ -104,15 +169,72 @@ struct StatBadge: View {
     }
 }
 
-// MARK: - Section Header (iOS HIG style — grey ALL CAPS)
+// MARK: - Section Header (Apple Fitness style bold headers)
 struct CadenceSectionHeader: View {
     let title: String
     var body: some View {
-        Text(title.uppercased())
-            .font(.footnote.weight(.semibold))
-            .foregroundStyle(.secondary)
+        Text(title)
+            .font(.title2.weight(.bold))
+            .foregroundStyle(.primary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 4)
+    }
+}
+
+// MARK: - Grouped List Header (Apple Settings style uppercase)
+struct CadenceListHeader: View {
+    let title: String
+    var body: some View {
+        Text(title.uppercased())
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 4)
+    }
+}
+
+// MARK: - Native iOS List Row (Fitness / Settings style)
+struct CadenceListRow<TrailingContent: View>: View {
+    let icon: String
+    let iconColor: Color
+    let title: String
+    let subtitle: String?
+    @ViewBuilder let trailingContent: TrailingContent
+    
+    var body: some View {
+        HStack(spacing: 16) {
+            // HIG standard colored circle icon
+            ZStack {
+                Circle()
+                    .fill(iconColor)
+                    .frame(width: 32, height: 32)
+                
+                Image(systemName: icon)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+            
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.body)
+                    .foregroundStyle(.primary)
+                
+                if let subtitle = subtitle {
+                    Text(subtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            
+            Spacer()
+            
+            trailingContent
+        }
+        .padding(.vertical, 10)
+        .padding(.horizontal, 16)
+        .background(Color(.secondarySystemGroupedBackground))
     }
 }
 
@@ -127,6 +249,8 @@ enum Device {
 }
 
 // MARK: - Metric Tile
+// Fixed: All tiles now share a uniform minimum height so Words/Min, Fillers,
+// and Rhythm are always the same size regardless of label text wrapping.
 struct MetricTile: View {
     let icon: String
     let label: String
@@ -141,9 +265,12 @@ struct MetricTile: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(color)
                 Text(label)
-                    .font(.subheadline)
+                    .font(.caption2.weight(.medium))
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             }
+            Spacer(minLength: 0)
             Text(value)
                 .font(.system(.title, design: .rounded, weight: .bold))
                 .foregroundStyle(color)
@@ -151,7 +278,8 @@ struct MetricTile: View {
             StatBadge(text: badge, color: color)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
+        .frame(minHeight: CadenceLayout.metricTileMinHeight)
+        .padding(14)
         .cadenceCard()
     }
 }

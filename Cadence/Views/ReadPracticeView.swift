@@ -721,16 +721,23 @@ struct PassagePrepView: View {
             HStack {
                 Button { engine.reset() } label: {
                     HStack(spacing: 6) {
-                        Image(systemName: "chevron.left").font(.system(size: 14, weight: .semibold))
-                        Text("Passages").font(.system(size: 15))
+                        Image(systemName: "chevron.left").font(.system(size: 13, weight: .bold))
+                        Text("Passages").font(.system(size: 14, weight: .semibold))
                     }
-                    .foregroundStyle(Color.mint)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Color(.secondarySystemFill), in: Capsule())
                 }
+                .buttonStyle(.plain)
                 Spacer()
                 if let p = engine.selectedPrompt {
                     Text("\(p.wordCount) words")
-                        .font(.system(size: 12))
-                        .foregroundStyle(Color.white.opacity(0.3))
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.85))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .cadenceStatusPill()
                 }
             }
             .padding(.horizontal, 20)
@@ -899,11 +906,9 @@ struct RecordingView: View {
                 Button { engine.stopRecording() } label: {
                     Text("Done")
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.black)
-                        .padding(.horizontal, 18).padding(.vertical, 10)
-                        .background(LinearGradient(colors: [.cyan, Color.cadenceAccent],
-                            startPoint: .leading, endPoint: .trailing))
-                        .clipShape(Capsule())
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 18).padding(.vertical, 9)
+                        .background(Color(.secondarySystemFill), in: Capsule())
                 }
             }
             .padding(.horizontal, 20).padding(.top, 56).padding(.bottom, 12)
@@ -1144,10 +1149,9 @@ struct ReadResultsView: View {
                     Button(action: { engine.tryAgain() }) {
                         Label("Try Again", systemImage: "arrow.counterclockwise")
                             .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(Color.white.opacity(0.55))
+                            .foregroundStyle(.white)
                             .frame(maxWidth: .infinity, minHeight: 50)
-                            .background(Color.white.opacity(0.08))
-                            .clipShape(RoundedRectangle(cornerRadius: 14))
+                            .background(Color(.secondarySystemFill), in: RoundedRectangle(cornerRadius: CadenceLayout.buttonCornerRadius, style: .continuous))
                     }
                     .buttonStyle(.plain)
 

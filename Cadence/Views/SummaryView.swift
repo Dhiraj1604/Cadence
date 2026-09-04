@@ -1,5 +1,5 @@
 // SummaryView.swift
-// Cadence — Accurate scoring, meaningful waveform, honest feedback
+// Cadence — Apple-clean summary: score → insight → timeline → details
 
 import SwiftUI
 
@@ -22,9 +22,11 @@ struct SummaryView: View {
     @State private var animRhythm  = 0.0
     @State private var animScore   = 0.0
     @State private var appeared    = false
-    @State private var signaturePoints: [SpeechCanvasPoint] = []
-    @State private var signatureImage: UIImage? = nil
-    @State private var signatureRevealed = false
+    
+    // Collapsible detail sections
+    @State private var showTranscript     = false
+    @State private var showFillerDetail   = false
+    @State private var showAllMetrics     = false
     
     private var hasRealSpeech: Bool {
         // Show results if either: meaningful WPM detected OR session ran long enough.
@@ -230,50 +232,52 @@ struct SummaryView: View {
                     // ── CLOSE BUTTON ──────────────────────────────────
                     HStack {
                         Spacer()
-                        Button {
+                        FitnessNavButton(icon: "xmark", size: 34, iconSize: 15) {
                             withAnimation(.spring(response: 0.5, dampingFraction: 0.82)) {
                                 session.resetSession()
                             }
-                        } label: {
-                            ZStack {
-                                Circle()
-                                    .fill(Color(.systemFill))
-                                    .frame(width: 30, height: 30)
-                                Image(systemName: "xmark")
-                                    .font(.system(size: 12, weight: .bold))
-                                    .foregroundStyle(Color(.secondaryLabel))
-                            }
                         }
-                        .buttonStyle(.plain)
+                        .accessibilityLabel("Close")
                     }
                     .padding(.horizontal, 20)
                     .padding(.top, 56)
                     
                     // ── TITLE ──────────────────────────────────────────
                     Text(hasRealSpeech ? "Session Complete" : "Session Ended")
-                        .font(.system(size: 28, weight: .bold))
-                        .foregroundStyle(.white)
+                        .font(.largeTitle.weight(.bold))
+                        .foregroundStyle(.primary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 20)
                         .padding(.top, 4)
                         .staggerIn(appeared, delay: 0.05)
                     
                     if hasRealSpeech {
-                        // ── SCORE HERO ─────────────────────────────────
-                        scoreHero
+                        // ── SECTION 1: SCORE HERO + KEY METRICS ────────
+                        scoreHeroCard
                             .padding(.top, 24)
                             .padding(.horizontal, 20)
                             .staggerIn(appeared, delay: 0.10)
                         
-                        // ── SPEECH SIGNATURE — the unique waveform ──────
-                        speechSignatureCard
-                            .padding(.horizontal, 20)
-                            .padding(.top, 16)
-                            .staggerIn(appeared, delay: 0.13)
-                        
-                        // ── COACH INSIGHT ──────────────────────────────
+                        // ── SECTION 2: COACH INSIGHT ───────────────────
                         insightCard
                             .padding(.horizontal, 20)
                             .padding(.top, 16)
                             .staggerIn(appeared, delay: 0.15)
+                        
+                        // ── SECTION 3: SESSION TIMELINE ────────────────
+                        if !session.finalFlowEvents.isEmpty {
+                            sessionTimelineCard
+                                .padding(.horizontal, 20)
+                                .padding(.top, 16)
+                                .staggerIn(appeared, delay: 0.20)
+                        }
+                        
+                        // ── SECTION 4: COLLAPSIBLE DETAILS ─────────────
+                        detailsSection
+                            .padding(.horizontal, 20)
+                            .padding(.top, 20)
+                            .staggerIn(appeared, delay: 0.25)
+                        
                     } else {
                         // ── NO SPEECH STATE ────────────────────────────
                         noSpeechCard
@@ -282,250 +286,41 @@ struct SummaryView: View {
                             .staggerIn(appeared, delay: 0.10)
                     }
                     
-                    // ── SPEECH FLOW DNA ────────────────────────────────
-                    if hasRealSpeech {
-                        VStack(alignment: .leading, spacing: 8) {
-                            CadenceSectionHeader(title: "Speech Flow DNA")
-                                .padding(.horizontal, 20)
-                            SpeechDNACard(events: session.finalFlowEvents, duration: session.duration)
-                                .padding(.horizontal, 20)
+                    // ── ACTION ─────────────────────────────────────────
+                    Button {
+                        withAnimation(.spring(response: 0.5, dampingFraction: 0.82)) {
+                            session.resetSession()
                         }
-                        .padding(.top, 20)
-                        .staggerIn(appeared, delay: 0.20)
+                    } label: {
+                        Text("Practice Again")
                     }
-                    
-                    // ── METRICS ────────────────────────────────────────
-                    if hasRealSpeech {
-                        VStack(alignment: .leading, spacing: 8) {
-                            CadenceSectionHeader(title: "Metrics")
-                                .padding(.horizontal, 20)
-                            
-                            VStack(spacing: 0) {
-                                metricRow(
-                                    symbol: "speedometer",
-                                    label: "Speech Rate",
-                                    value: animWPM == 0 ? "—" : "\(animWPM) WPM",
-                                    subValue: session.duration < 25
-                                    ? "⚠ Speak 30+ sec for accuracy"
-                                    : "Target: 130–150 WPM",
-                                    badge: pacingBadge, color: pacingColor
-                                )
-                                Divider().background(Color.white.opacity(0.06)).padding(.leading, 50)
-                                metricRow(
-                                    symbol: "exclamationmark.bubble.fill",
-                                    label: "Filler Words",
-                                    value: "\(animFillers)",
-                                    subValue: animFillers == 0 ? "None detected" : fillerRateText,
-                                    badge: fillerBadge, color: fillerColor
-                                )
-                                Divider().background(Color.white.opacity(0.06)).padding(.leading, 50)
-                                metricRow(
-                                    symbol: "eye.fill",
-                                    label: "Eye Contact",
-                                    value: "\(animEye)%",
-                                    subValue: "of session time",
-                                    badge: eyeBadge, color: eyeColor
-                                )
-                                Divider().background(Color.white.opacity(0.06)).padding(.leading, 50)
-                                metricRow(
-                                    symbol: "waveform.path",
-                                    label: "Rhythm",
-                                    value: String(format: "%.0f%%", animRhythm < 0 ? 68.0 : animRhythm),
-                                    subValue: "pacing consistency",
-                                    badge: rhythmBadge, color: rhythmColor
-                                )
-                                Divider().background(Color.white.opacity(0.06)).padding(.leading, 50)
-                                metricRow(
-                                    symbol: "waveform.and.mic",
-                                    label: "Delivery Style",
-                                    value: spontaneityLabel,
-                                    subValue: "naturalness vs scripted",
-                                    badge: spontaneityBadge, color: spontaneityColor
-                                )
-                            }
-                            .cadenceCard()
-                            .padding(.horizontal, 20)
-                                
-                                Label(durationText, systemImage: "timer")
-                                    .font(.caption)
-                                    .foregroundStyle(Color.white.opacity(0.25))
-                                    .padding(.horizontal, 24)
-                            }
-                            .padding(.top, 20)
-                            .staggerIn(appeared, delay: 0.25)
-                        }
-                        
-                        // ── FILLER WORD BREAKDOWN ──────────────────────────
-                        if hasRealSpeech && !session.finalDetectedFillerWords.isEmpty {
-                            VStack(alignment: .leading, spacing: 8) {
-                                CadenceSectionHeader(title: "Filler Words Detected")
-                                    .padding(.horizontal, 20)
-                                fillerBreakdownCard
-                                    .padding(.horizontal, 20)
-                            }
-                            .padding(.top, 20)
-                            .staggerIn(appeared, delay: 0.28)
-                        }
-                        
-                        // ── ACTION ─────────────────────────────────────────
-                        Button {
-                            withAnimation(.spring(response: 0.5, dampingFraction: 0.82)) {
-                                session.resetSession()
-                            }
-                        } label: {
-                            Text("Practice Again")
-                                .font(.headline)
-                                .foregroundStyle(.black)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 18)
-                                .background(LinearGradient.cadencePrimary)
-                                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                                .shadow(color: Color.mint.opacity(0.30), radius: 14, y: 6)
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.horizontal, 20)
-                        .padding(.top, 24)
-                        .padding(.bottom, 48)
-                        .staggerIn(appeared, delay: 0.30)
-                    }
-                }
-            }
-            .onAppear {
-                appeared = true
-                guard hasRealSpeech else { return }
-                // Build signature points
-                signaturePoints = buildSignaturePoints()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    withAnimation(.spring(response: 1.2, dampingFraction: 0.75)) {
-                        animWPM     = session.finalWPM
-                        animFillers = session.finalFillers
-                        animEye     = session.eyeContactPercentage
-                        animRhythm  = session.finalRhythmStability
-                        animScore   = Double(overallScore)
-                    }
-                    withAnimation(.easeOut(duration: 0.6).delay(0.2)) {
-                        signatureRevealed = true
-                    }
-                }
-                // Render shareable image after a brief layout settle
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                    renderSignatureImage()
+                    .buttonStyle(CadencePrimaryButtonStyle())
+                    .padding(.horizontal, 20)
+                    .padding(.top, 28)
+                    .padding(.bottom, 48)
+                    .staggerIn(appeared, delay: 0.30)
                 }
             }
         }
-        
-        // MARK: - Filler Breakdown Card
-        private var fillerBreakdownCard: some View {
-            // Count frequency of each filler word
-            var freq: [String: Int] = [:]
-            for word in session.finalDetectedFillerWords {
-                freq[word, default: 0] += 1
-            }
-            let sorted = freq.sorted { $0.value > $1.value }
-            
-            return VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 8) {
-                    Image(systemName: "exclamationmark.bubble.fill")
-                        .foregroundStyle(Color.cadenceWarn)
-                        .symbolRenderingMode(.hierarchical)
-                    Text("You used \(session.finalFillers) filler word\(session.finalFillers == 1 ? "" : "s") this session")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.white)
+        .onAppear {
+            appeared = true
+            guard hasRealSpeech else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                withAnimation(.spring(response: 1.2, dampingFraction: 0.75)) {
+                    animWPM     = session.finalWPM
+                    animFillers = session.finalFillers
+                    animEye     = session.eyeContactPercentage
+                    animRhythm  = session.finalRhythmStability
+                    animScore   = Double(overallScore)
                 }
-                
-                // Filler chips with count badges
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 90))], alignment: .leading, spacing: 8) {
-                    ForEach(sorted, id: \.key) { word, count in
-                        HStack(spacing: 6) {
-                            Text("\"\(word)\"")
-                                .font(.subheadline.weight(.medium))
-                                .foregroundStyle(Color.cadenceWarn)
-                            Text("×\(count)")
-                                .font(.caption.weight(.bold))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 6).padding(.vertical, 2)
-                                .background(Color.cadenceWarn.opacity(0.25))
-                                .clipShape(Capsule())
-                        }
-                        .padding(.horizontal, 10).padding(.vertical, 6)
-                        .background(Color.cadenceWarn.opacity(0.10))
-                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .strokeBorder(Color.cadenceWarn.opacity(0.25), lineWidth: 1)
-                        )
-                    }
-                }
-                
-                Text("Replace each filler with a deliberate 1-second pause. Silence sounds confident.")
-                    .font(.footnote)
-                    .foregroundStyle(Color.white.opacity(0.40))
-            }
-            .padding(16)
-            .background(Color.cadenceCard.opacity(0.5))
-            .background(.ultraThinMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(Color.cadenceWarn.opacity(0.25), lineWidth: 1)
-            )
-            .shadow(color: Color.black.opacity(0.2), radius: 10, y: 5)
-        }
-        
-        // MARK: - No Speech Card
-        private var noSpeechCard: some View {
-            VStack(spacing: 20) {
-                // Icon
-                ZStack {
-                    Circle()
-                        .fill(Color.white.opacity(0.06))
-                        .frame(width: 80, height: 80)
-                    Image(systemName: "mic.slash.fill")
-                        .font(.system(size: 32, weight: .light))
-                        .foregroundStyle(Color.white.opacity(0.35))
-                        .symbolRenderingMode(.hierarchical)
-                }
-                
-                VStack(spacing: 8) {
-                    Text("No Speech Detected")
-                        .font(.system(size: 22, weight: .bold))
-                        .foregroundStyle(.white)
-                    Text("We couldn't pick up any clear speech this session. Make sure you're speaking toward the device at a normal conversation volume.")
-                        .font(.subheadline)
-                        .foregroundStyle(Color.white.opacity(0.45))
-                        .multilineTextAlignment(.center)
-                        .lineSpacing(3)
-                }
-                
-                // Tips
-                VStack(spacing: 10) {
-                    tipRow(icon: "mic.fill",        text: "Hold the device 30–50 cm from your face")
-                    tipRow(icon: "speaker.wave.2",  text: "Speak at a normal conversation volume")
-                    tipRow(icon: "clock",           text: "Aim for at least 20 seconds of speech")
-                }
-                .padding(14)
-                .background(Color.white.opacity(0.04))
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            }
-            .padding(20)
-            .cadenceCard()
-        }
-        
-        private func tipRow(icon: String, text: String) -> some View {
-            HStack(spacing: 12) {
-                Image(systemName: icon)
-                    .font(.system(size: 13))
-                    .foregroundStyle(Color.mint.opacity(0.7))
-                    .frame(width: 20)
-                Text(text)
-                    .font(.footnote)
-                    .foregroundStyle(Color.white.opacity(0.5))
-                Spacer()
             }
         }
-        
-        // MARK: - Score Hero
-        private var scoreHero: some View {
+    }
+    
+    // MARK: - Score Hero Card (with inline key metrics)
+    private var scoreHeroCard: some View {
+        VStack(spacing: 20) {
+            // Score ring + label
             HStack(spacing: 20) {
                 ZStack {
                     Circle()
@@ -564,585 +359,538 @@ struct SummaryView: View {
                         }
                     }
                     .frame(height: 5)
-                    Text("Overall communication score")
+                    
+                    // Duration label
+                    Label(durationText, systemImage: "timer")
                         .font(.caption)
                         .foregroundStyle(Color.white.opacity(0.3))
                 }
             }
-            .padding(18)
-            .background(Color.cadenceCard.opacity(0.5))
-            .background(.ultraThinMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .strokeBorder(scoreColor.opacity(0.25), lineWidth: 1)
-            )
-            .shadow(color: Color.black.opacity(0.2), radius: 10, y: 5)
-        }
-        
-        // MARK: - Insight Card
-        private var insightCard: some View {
-            let insight = primaryInsight
-            return VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 12) {
-                    Image(systemName: insight.symbol)
-                        .font(.title2)
-                        .foregroundStyle(insight.color)
-                        .symbolRenderingMode(.hierarchical)
-                        .frame(width: 36)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(insight.title)
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.white)
-                        Text(insight.detail)
-                            .font(.subheadline)
-                            .foregroundStyle(Color.white.opacity(0.55))
-                            .lineSpacing(2)
-                    }
-                }
-                if let tip = insight.tip {
-                    HStack(alignment: .top, spacing: 8) {
-                        Image(systemName: "lightbulb.fill")
-                            .font(.caption)
-                            .foregroundStyle(.yellow)
-                            .padding(.top, 1)
-                        Text(tip)
-                            .font(.footnote.weight(.medium))
-                            .foregroundStyle(Color.white.opacity(0.55))
-                    }
-                    .padding(10)
-                    .background(Color.yellow.opacity(0.08))
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                }
-            }
-            .padding(16)
-            .background(Color.cadenceCard.opacity(0.5))
-            .background(.ultraThinMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(insight.color.opacity(0.25), lineWidth: 1)
-            )
-            .shadow(color: Color.black.opacity(0.2), radius: 10, y: 5)
-        }
-        
-        // MARK: - Metric Row (with sub-value line)
-        private func metricRow(
-            symbol: String, label: String, value: String,
-            subValue: String, badge: String, color: Color
-        ) -> some View {
-            HStack {
-                Label(label, systemImage: symbol)
-                    .foregroundStyle(Color.white.opacity(0.75))
-                    .symbolRenderingMode(.hierarchical)
-                Spacer()
-                VStack(alignment: .trailing, spacing: 3) {
-                    Text(value)
-                        .font(.subheadline.weight(.bold).monospacedDigit())
-                        .foregroundStyle(.white)
-                        .contentTransition(.numericText())
-                    StatBadge(text: badge, color: color)
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-        }
-        
-        // MARK: - Helpers
-        private var durationText: String {
-            let d = Int(session.duration)
-            return d < 60 ? "Session: \(d) seconds" : "Session: \(d/60)m \(d%60)s"
-        }
-        
-        private var fillerRateText: String {
-            let mins = max(0.5, session.duration / 60.0)
-            let rate = Double(session.finalFillers) / mins
-            return String(format: "%.1f per minute", rate)
-        }
-        
-        private var pacingBadge: String {
-            // Short sessions (<25s) don't have reliable WPM — warn instead of misleading
-            if session.duration < 25 && session.finalWPM > 0 {
-                return "Short sample"
-            }
-            switch session.finalWPM {
-            case 130...150: return "Ideal"
-            case 115..<130, 151...165: return "Good"
-            case 95..<115,  166...185: return "Slightly off"
-            case 60..<95,   186...220: return "Needs work"
-            case 0: return "No speech"
-            default: return session.finalWPM > 220 ? "Too fast" : "Too slow"
-            }
-        }
-        private var pacingColor: Color {
-            if session.duration < 25 && session.finalWPM > 0 {
-                return Color.cadenceNeutral
-            }
-            switch session.finalWPM {
-            case 130...150: return Color.cadenceGood
-            case 115..<130, 151...165: return Color.cadenceGood.opacity(0.8)
-            case 95..<115,  166...185: return Color.cadenceNeutral
-            case 0: return Color.white.opacity(0.3)
-            default: return Color.cadenceWarn
-            }
-        }
-        private var fillerBadge: String {
-            let mins = max(0.5, session.duration / 60.0)
-            let rate = Double(session.finalFillers) / mins
-            switch rate {
-            case 0:    return "Flawless"
-            case ..<1: return "Excellent"
-            case ..<2: return "Good"
-            case ..<4: return "Noticeable"
-            default:   return "Too many"
-            }
-        }
-        private var fillerColor: Color {
-            let mins = max(0.5, session.duration / 60.0)
-            let rate = Double(session.finalFillers) / mins
-            switch rate {
-            case 0..<1: return Color.cadenceGood
-            case 1..<2: return Color.cadenceGood.opacity(0.8)
-            case 2..<4: return Color.cadenceNeutral
-            default:    return Color.cadenceBad
-            }
-        }
-        private var eyeBadge: String {
-            switch session.eyeContactPercentage {
-            case 80...100: return "Excellent"
-            case 60..<80:  return "Good"
-            case 40..<60:  return "Acceptable"
-            default:       return "Too low"
-            }
-        }
-        private var eyeColor: Color {
-            switch session.eyeContactPercentage {
-            case 75...100: return Color.cadenceGood
-            case 50..<75:  return Color.cadenceNeutral
-            default:       return Color.cadenceWarn
-            }
-        }
-        private var rhythmBadge: String {
-            let r = session.finalRhythmStability < 0 ? 68.0 : session.finalRhythmStability
-            switch r {
-            case 85...100: return "Consistent"
-            case 70..<85:  return "Steady"
-            case 55..<70:  return "Decent"
-            case 40..<55:  return "Uneven"
-            default:       return "Choppy"
-            }
-        }
-        private var rhythmColor: Color {
-            let r = session.finalRhythmStability < 0 ? 68.0 : session.finalRhythmStability
-            switch r {
-            case 75...100: return Color.cadenceGood
-            case 50..<75:  return Color.cadenceNeutral
-            default:       return Color.cadenceWarn
-            }
-        }
-        
-        // MARK: - Spontaneity helpers
-        private var spontaneityLabel: String {
-            switch session.finalSpontaneityScore {
-            case 70...100: return "Natural"
-            case 40..<70:  return "Mixed"
-            default:       return "Scripted"
-            }
-        }
-        private var spontaneityBadge: String {
-            switch session.finalSpontaneityScore {
-            case 70...100: return "Authentic delivery"
-            case 40..<70:  return "Some variation"
-            default:       return "Try to vary pace"
-            }
-        }
-        private var spontaneityColor: Color {
-            switch session.finalSpontaneityScore {
-            case 70...100: return Color.cadenceGood
-            case 40..<70:  return Color.cadenceNeutral
-            default:       return Color.cadenceWarn
-            }
-        }
-        
-        // MARK: - Speech Signature builder
-        /// Converts session flow events into SpeechCanvasPoint array for the signature view.
-        private func buildSignaturePoints() -> [SpeechCanvasPoint] {
-            let events = session.finalFlowEvents
-            guard !events.isEmpty, session.duration > 0 else { return [] }
-            let maxTime = max(session.duration, events.map { $0.timestamp }.max() ?? 1.0)
-            let eyeFraction = Double(session.eyeContactPercentage) / 100.0
             
-            // Use a seeded-like sequence so the same session always draws the same shape
-            var pseudoRand: Double = Double(session.finalWPM) * 0.01
-            func nextRand(_ lo: Double, _ hi: Double) -> Double {
-                pseudoRand = (pseudoRand * 6364136223846793005.0 + 1442695040888963407.0)
-                    .truncatingRemainder(dividingBy: 1_000_000)
-                let frac = abs(pseudoRand) / 1_000_000
-                return lo + frac * (hi - lo)
+            // ── Inline key metrics (3-column) ─────────────────────
+            HStack(spacing: 0) {
+                inlineMetric(
+                    value: animWPM == 0 ? "—" : "\(animWPM)",
+                    label: "WPM",
+                    badge: pacingBadge,
+                    color: pacingColor
+                )
+                
+                dividerBar
+                
+                inlineMetric(
+                    value: "\(animFillers)",
+                    label: "Fillers",
+                    badge: fillerBadge,
+                    color: fillerColor
+                )
+                
+                dividerBar
+                
+                inlineMetric(
+                    value: "\(animEye)%",
+                    label: "Eye Contact",
+                    badge: eyeBadge,
+                    color: eyeColor
+                )
+            }
+            .padding(.vertical, 4)
+        }
+        .padding(18)
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: CadenceLayout.cardCornerRadius, style: .continuous))
+    }
+    
+    /// A single inline metric column for the hero card
+    private func inlineMetric(value: String, label: String, badge: String, color: Color) -> some View {
+        VStack(spacing: 6) {
+            Text(value)
+                .font(.system(.title2, design: .rounded, weight: .bold))
+                .foregroundStyle(color)
+                .contentTransition(.numericText())
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            StatBadge(text: badge, color: color)
+        }
+        .frame(maxWidth: .infinity)
+    }
+    
+    /// Thin vertical divider between metric columns
+    private var dividerBar: some View {
+        Rectangle()
+            .fill(Color.white.opacity(0.08))
+            .frame(width: 1, height: 50)
+    }
+    
+    // MARK: - Insight Card
+    private var insightCard: some View {
+        let insight = primaryInsight
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                Image(systemName: insight.symbol)
+                    .font(.system(size: 18))
+                    .foregroundStyle(insight.color)
+                    .frame(width: 32, height: 32)
+                    .background(insight.color.opacity(0.15))
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                
+                Text("Your #1 Focus")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(insight.color)
+                    .textCase(.uppercase)
             }
             
-            return events.map { event in
-                let progress = event.timestamp / maxTime
-                let intensity: Double
-                let isFiller: Bool
-                switch event.type {
-                case .strongMoment:
-                    intensity = nextRand(0.72, 0.98)
-                    isFiller  = false
-                case .filler(let w):
-                    intensity = nextRand(0.35, 0.55)
-                    _ = w
-                    isFiller  = true
-                case .hesitation:
-                    intensity = nextRand(0.15, 0.30)
-                    isFiller  = false
-                case .flowBreak:
-                    intensity = nextRand(0.05, 0.18)
-                    isFiller  = false
-                }
-                // Eye contact: probabilistic based on session average
-                let hasEye = nextRand(0, 1) < eyeFraction
-                return SpeechCanvasPoint(progress: progress, intensity: intensity,
-                                         isFiller: isFiller, hasEyeContact: hasEye)
-            }
-        }
-        
-        /// Renders signature + metadata to a UIImage for sharing
-        @MainActor
-        private func renderSignatureImage() {
-            guard !signaturePoints.isEmpty else { return }
-            let card = signatureShareCard
-            let renderer = ImageRenderer(content: card)
-            renderer.scale = 3.0
-            signatureImage = renderer.uiImage
-        }
-        
-        /// The card rendered for sharing — includes dark background + metadata
-        private var signatureShareCard: some View {
-            VStack(spacing: 12) {
-                HStack {
-                    Text("Speech Signature")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(Color.mint)
-                    Spacer()
-                    Text("\(session.finalWPM) WPM · \(session.finalFillers) fillers · \(session.eyeContactPercentage)% eye contact")
-                        .font(.caption2)
-                        .foregroundStyle(Color.white.opacity(0.4))
-                }
-                SpeechSignatureView(dataPoints: signaturePoints)
-                    .frame(height: 100)
-                HStack(spacing: 14) {
-                    sigLegendDot(Color.mint,             "Speaking")
-                    sigLegendDot(Color.cadenceWarn,      "Filler")
-                    sigLegendDot(Color.white.opacity(0.3),"No eye contact")
-                    Spacer()
-                    Text("Cadence")
-                        .font(.caption2.weight(.bold))
-                        .foregroundStyle(Color.mint.opacity(0.5))
-                }
-            }
-            .padding(16)
-            .background(Color(red: 0.04, green: 0.05, blue: 0.04))
-            .frame(width: 360)
-        }
-        
-        private func sigLegendDot(_ color: Color, _ label: String) -> some View {
-            HStack(spacing: 4) {
-                Circle().fill(color).frame(width: 6, height: 6)
-                Text(label).font(.caption2).foregroundStyle(Color.white.opacity(0.35))
-            }
-        }
-        
-        // MARK: - Speech Signature Card (shown in summary)
-        private var speechSignatureCard: some View {
-            VStack(alignment: .leading, spacing: 14) {
-                // Header row
-                HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        HStack(spacing: 8) {
-                            Text("Your Speech Signature")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.white)
-                            Text("UNIQUE")
-                                .font(.caption2.weight(.black))
-                                .foregroundStyle(Color.mint)
-                                .padding(.horizontal, 7).padding(.vertical, 2)
-                                .background(Color.mint.opacity(0.12))
-                                .clipShape(Capsule())
-                        }
-                        Text("Bar height = energy · gaps = pauses · orange = fillers · never repeated")
-                            .font(.caption)
-                            .foregroundStyle(Color.white.opacity(0.35))
-                    }
-                    Spacer()
-                    // Share button
-                    if let img = signatureImage {
-                        ShareLink(
-                            item: Image(uiImage: img),
-                            preview: SharePreview(
-                                "My Speech Signature",
-                                image: Image(uiImage: img)
-                            )
-                        ) {
-                            Image(systemName: "square.and.arrow.up")
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundStyle(Color.mint)
-                                .padding(8)
-                                .background(Color.mint.opacity(0.12))
-                                .clipShape(Circle())
-                        }
-                    }
-                }
-                
-                // The signature itself
-                if signaturePoints.isEmpty {
-                    // Placeholder while points are being built
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(Color.white.opacity(0.04))
-                        .frame(height: 90)
-                        .overlay(
-                            Text("Building signature…")
-                                .font(.caption2)
-                                .foregroundStyle(Color.white.opacity(0.2))
-                        )
-                } else {
-                    SpeechSignatureView(dataPoints: signaturePoints)
-                        .frame(height: 90)
-                        .opacity(signatureRevealed ? 1 : 0)
-                        .animation(.easeIn(duration: 0.5), value: signatureRevealed)
-                }
-                
-                // Legend
-                HStack(spacing: 14) {
-                    sigLegendDot(Color.cadenceAccent, "Speaking")
-                    sigLegendDot(Color.cadenceWarn,   "Filler")
-                    sigLegendDot(Color.white.opacity(0.25), "No eye contact")
-                    Spacer()
-                }
-            }
-            .padding(16)
-            .background(Color.cadenceCard.opacity(0.5))
-            .background(.ultraThinMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(
-                        LinearGradient(
-                            colors: [Color.mint.opacity(0.4), Color.cyan.opacity(0.2)],
-                            startPoint: .topLeading, endPoint: .bottomTrailing
-                        ),
-                        lineWidth: 1
-                    )
-            )
-            .shadow(color: Color.black.opacity(0.2), radius: 10, y: 5)
-        }
-    }
-    
-    // MARK: - Compatibility alias (kept for any external references)
-    typealias MetricListRow = SummaryMetricRowCompat
-    
-    struct SummaryMetricRowCompat: View {
-        let symbol: String; let color: Color; let label: String; let value: String; let badge: String
-        var body: some View { EmptyView() }
-    }
-    
-    struct SpeechDNATimeline: View {
-        let events: [FlowEvent]; let duration: TimeInterval
-        var body: some View { SpeechDNACard(events: events, duration: duration) }
-    }
-    
-    private extension View {
-        func staggerSummary(_ appeared: Bool, delay: Double) -> some View {
-            self.opacity(appeared ? 1 : 0).offset(y: appeared ? 0 : 14)
-                .animation(.spring(response: 0.5, dampingFraction: 0.82).delay(delay), value: appeared)
-        }
-    }
-    
-    // MARK: - Speech DNA Card
-    struct SpeechDNACard: View {
-        let events: [FlowEvent]
-        let duration: TimeInterval
-        
-        var body: some View {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Speech Journey")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.white)
-                        Text("Your session energy, mapped moment by moment")
-                            .font(.caption)
-                            .foregroundStyle(Color.white.opacity(0.35))
-                    }
-                    Spacer()
-                    Text("YOUR DNA")
-                        .font(.caption2.weight(.bold))
-                        .foregroundStyle(Color.mint)
-                        .padding(.horizontal, 8).padding(.vertical, 3)
-                        .background(Color.mint.opacity(0.12))
-                        .clipShape(Capsule())
-                }
-                
-                if events.isEmpty {
-                    Text("No events captured — speak longer to generate your journey.")
+            Text(insight.title)
+                .font(.headline)
+                .foregroundStyle(.primary)
+            
+            Text(insight.detail)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .lineSpacing(2)
+            
+            if let tip = insight.tip {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "lightbulb.fill")
+                        .font(.caption)
+                        .foregroundStyle(.yellow)
+                        .padding(.top, 1)
+                    Text(tip)
                         .font(.footnote)
-                        .foregroundStyle(Color.white.opacity(0.25))
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .padding(.vertical, 24)
-                } else {
-                    SpeechJourneyView(events: events, duration: duration)
-                        .frame(height: 90)
-                        .background(Color.cadenceBG)
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    
-                    // Event summary row
-                    let fillers   = events.filter { if case .filler      = $0.type { return true }; return false }.count
-                    let pauses    = events.filter { if case .hesitation   = $0.type { return true }; return false }.count
-                    let breaks_   = events.filter { if case .flowBreak    = $0.type { return true }; return false }.count
-                    let strongs   = events.filter { if case .strongMoment = $0.type { return true }; return false }.count
-                    
-                    HStack(spacing: 0) {
-                        journeyStat("⚡", "\(strongs)", "Strong",  .mint)
-                        Spacer()
-                        journeyStat("💬", "\(fillers)",  "Fillers", .orange)
-                        Spacer()
-                        journeyStat("⏸",  "\(pauses)",   "Pauses",  .yellow)
-                        Spacer()
-                        journeyStat("⚠️", "\(breaks_)",  "Breaks",  .red)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(10)
+                .background(Color.yellow.opacity(0.08))
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            }
+        }
+        .padding(16)
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: CadenceLayout.cardCornerRadius, style: .continuous))
+    }
+    
+    // MARK: - Session Timeline Card
+    private var sessionTimelineCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Session Timeline")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+                    Text("How your session played out over time")
+                        .font(.caption)
+                        .foregroundStyle(Color.white.opacity(0.35))
+                }
+                Spacer()
+            }
+            
+            SessionTimelineView(events: session.finalFlowEvents, duration: session.duration)
+        }
+        .padding(16)
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: CadenceLayout.cardCornerRadius, style: .continuous))
+    }
+    
+    // MARK: - Collapsible Details Section
+    private var detailsSection: some View {
+        VStack(spacing: 0) {
+            // Section header
+            Text("DETAILS")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.bottom, 8)
+            
+            VStack(spacing: 0) {
+                // ── Transcript ─────────────────────────────────────
+                if !session.finalTranscript.isEmpty &&
+                   session.finalTranscript != "No speech was detected during this session." {
+                    detailRow(
+                        icon: "text.quote",
+                        title: "Transcript",
+                        isExpanded: $showTranscript
+                    ) {
+                        Text(session.finalTranscript)
+                            .font(.subheadline)
+                            .foregroundStyle(.primary)
+                            .lineSpacing(3)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.top, 4)
+                            .padding(.bottom, 12)
+                            .padding(.horizontal, 16)
                     }
-                    .padding(.top, 4)
+                    
+                    Divider().padding(.leading, 52)
+                }
+                
+                // ── Filler Breakdown ───────────────────────────────
+                if !session.finalDetectedFillerWords.isEmpty {
+                    detailRow(
+                        icon: "exclamationmark.bubble.fill",
+                        title: "Filler Breakdown",
+                        isExpanded: $showFillerDetail
+                    ) {
+                        fillerBreakdownContent
+                            .padding(.top, 4)
+                            .padding(.bottom, 12)
+                            .padding(.horizontal, 16)
+                    }
+                    
+                    Divider().padding(.leading, 52)
+                }
+                
+                // ── All Metrics ────────────────────────────────────
+                detailRow(
+                    icon: "chart.bar.fill",
+                    title: "All Metrics",
+                    isExpanded: $showAllMetrics
+                ) {
+                    allMetricsContent
+                        .padding(.top, 4)
+                        .padding(.bottom, 12)
+                        .padding(.horizontal, 16)
                 }
             }
-            .padding(16)
-            .cadenceCard()
-        }
-        
-        private func journeyStat(_ emoji: String, _ value: String, _ label: String, _ color: Color) -> some View {
-            VStack(spacing: 3) {
-                Text(emoji).font(.system(size: 14))
-                Text(value)
-                    .font(.system(size: 16, weight: .bold, design: .rounded))
-                    .foregroundStyle(color)
-                Text(label)
-                    .font(.caption2)
-                    .foregroundStyle(Color.white.opacity(0.35))
-            }
-            .frame(maxWidth: .infinity)
+            .background(Color(.secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: CadenceLayout.cardCornerRadius, style: .continuous))
         }
     }
     
-    // MARK: - Speech Journey View
-    // A smooth gradient area chart. Y-axis = speech energy (strongMoment = top, hesitation = bottom).
-    // Colour transitions smoothly between event types. Event dots mark key moments.
-    // Judges see ONE clean picture of the entire session at a glance.
-    struct SpeechJourneyView: View {
-        let events: [FlowEvent]
-        let duration: TimeInterval
-        
-        private struct PlotPoint {
-            let x: CGFloat    // normalised 0→1
-            let y: CGFloat    // normalised 0→1 (1=top = high energy)
-            let color: Color
-            let isMarker: Bool
-        }
-        
-        private func points(width: CGFloat, height: CGFloat) -> [PlotPoint] {
-            guard duration > 0, !events.isEmpty else { return [] }
-            
-            // Synthesise curve: start at midpoint, move to each event's energy level
-            var pts: [PlotPoint] = []
-            let maxT = duration
-            
-            // Add anchor at start
-            pts.append(PlotPoint(x: 0, y: 0.45, color: .mint, isMarker: false))
-            
-            for event in events.sorted(by: { $0.timestamp < $1.timestamp }) {
-                let xNorm = CGFloat(event.timestamp / maxT)
-                let yNorm: CGFloat
-                let color: Color
-                let isMarker: Bool
-                switch event.type {
-                case .strongMoment:
-                    yNorm = CGFloat.random(in: 0.70...0.90)
-                    color = .mint; isMarker = true
-                case .filler:
-                    yNorm = CGFloat.random(in: 0.30...0.50)
-                    color = .orange; isMarker = true
-                case .hesitation:
-                    yNorm = CGFloat.random(in: 0.10...0.30)
-                    color = .yellow; isMarker = true
-                case .flowBreak:
-                    yNorm = CGFloat.random(in: 0.05...0.20)
-                    color = .red; isMarker = true
+    /// A single expandable detail row with disclosure chevron
+    private func detailRow<Content: View>(
+        icon: String,
+        title: String,
+        isExpanded: Binding<Bool>,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(spacing: 0) {
+            Button {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                    isExpanded.wrappedValue.toggle()
                 }
-                pts.append(PlotPoint(x: xNorm, y: yNorm, color: color, isMarker: isMarker))
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: icon)
+                        .font(.system(size: 14))
+                        .foregroundStyle(Color.cadenceAccent)
+                        .frame(width: 24)
+                    
+                    Text(title)
+                        .font(.body)
+                        .foregroundStyle(.primary)
+                    
+                    Spacer()
+                    
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                        .rotationEffect(.degrees(isExpanded.wrappedValue ? 90 : 0))
+                }
+                .padding(.vertical, 12)
+                .padding(.horizontal, 16)
             }
-            // End anchor
-            pts.append(PlotPoint(x: 1.0, y: 0.45, color: .mint, isMarker: false))
-            return pts
-        }
-        
-        var body: some View {
-            Canvas { ctx, size in
-                let pts = points(width: size.width, height: size.height)
-                guard pts.count >= 2 else { return }
-                
-                let w = size.width
-                let h = size.height
-                
-                // ── 1. Filled area under the curve ──────────────────────────
-                var area = Path()
-                area.move(to: CGPoint(x: 0, y: h))
-                for pt in pts {
-                    area.addLine(to: CGPoint(x: pt.x * w, y: (1 - pt.y) * h))
-                }
-                area.addLine(to: CGPoint(x: w, y: h))
-                area.closeSubpath()
-                ctx.fill(area, with: .color(Color.mint.opacity(0.08)))
-                
-                // ── 2. Smooth line through points ────────────────────────────
-                var line = Path()
-                for (i, pt) in pts.enumerated() {
-                    let px = pt.x * w
-                    let py = (1 - pt.y) * h
-                    if i == 0 {
-                        line.move(to: CGPoint(x: px, y: py))
-                    } else {
-                        let prev = pts[i - 1]
-                        let ppx = prev.x * w
-                        let ppy = (1 - prev.y) * h
-                        let cpx = (ppx + px) / 2
-                        line.addCurve(
-                            to: CGPoint(x: px, y: py),
-                            control1: CGPoint(x: cpx, y: ppy),
-                            control2: CGPoint(x: cpx, y: py)
-                        )
-                    }
-                }
-                ctx.stroke(line, with: .color(Color.mint.opacity(0.70)),
-                           style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
-                
-                // ── 3. Event dots ─────────────────────────────────────────────
-                for pt in pts where pt.isMarker {
-                    let cx = pt.x * w
-                    let cy = (1 - pt.y) * h
-                    let r: CGFloat = 5
-                    // Halo
-                    let halo = Path(ellipseIn: CGRect(x: cx - r * 1.6, y: cy - r * 1.6,
-                                                      width: r * 3.2, height: r * 3.2))
-                    ctx.fill(halo, with: .color(pt.color.opacity(0.20)))
-                    // Dot
-                    let dot = Path(ellipseIn: CGRect(x: cx - r, y: cy - r, width: r * 2, height: r * 2))
-                    ctx.fill(dot, with: .color(pt.color))
-                }
-                
-                // ── 4. Ideal zone band (130–150 WPM region) ──────────────────
-                let idealTop    = h * 0.10     // high energy = top 10%
-                let idealBottom = h * 0.30
-                var band = Path()
-                band.addRect(CGRect(x: 0, y: idealTop, width: w, height: idealBottom - idealTop))
-                ctx.fill(band, with: .color(Color.mint.opacity(0.04)))
+            .buttonStyle(.plain)
+            
+            if isExpanded.wrappedValue {
+                content()
+                    .transition(.opacity.combined(with: .move(edge: .top)))
             }
-            .drawingGroup()
         }
     }
+    
+    /// Filler word chips shown inside the collapsible detail
+    private var fillerBreakdownContent: some View {
+        let words = session.finalDetectedFillerWords
+        var freq: [String: Int] = [:]
+        for word in words { freq[word, default: 0] += 1 }
+        let sorted = freq.sorted { $0.value > $1.value }
+        
+        return VStack(alignment: .leading, spacing: 10) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 90))], alignment: .leading, spacing: 8) {
+                ForEach(sorted, id: \.key) { word, count in
+                    HStack(spacing: 6) {
+                        Text("\"\(word)\"")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(Color.cadenceWarn)
+                        Text("×\(count)")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 6).padding(.vertical, 2)
+                            .background(Color.cadenceWarn.opacity(0.25))
+                            .clipShape(Capsule())
+                    }
+                    .padding(.horizontal, 10).padding(.vertical, 6)
+                    .background(Color.cadenceWarn.opacity(0.10))
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
+            }
+            
+            Text("Replace each filler with a 1-second pause.")
+                .font(.footnote)
+                .foregroundStyle(Color.white.opacity(0.35))
+        }
+    }
+    
+    /// Full metric breakdown shown inside the collapsible detail
+    private var allMetricsContent: some View {
+        VStack(spacing: 10) {
+            metricDetailRow(
+                icon: "speedometer",
+                label: "Speech Rate",
+                value: animWPM == 0 ? "—" : "\(animWPM) WPM",
+                badge: pacingBadge,
+                color: pacingColor,
+                note: session.duration < 25 ? "⚠ Speak 30+ sec for accuracy" : "Target: 130–150 WPM"
+            )
+            metricDetailRow(
+                icon: "exclamationmark.bubble.fill",
+                label: "Filler Words",
+                value: "\(animFillers)",
+                badge: fillerBadge,
+                color: fillerColor,
+                note: animFillers == 0 ? "None detected" : fillerRateText
+            )
+            metricDetailRow(
+                icon: "eye.fill",
+                label: "Eye Contact",
+                value: "\(animEye)%",
+                badge: eyeBadge,
+                color: eyeColor,
+                note: "of session time"
+            )
+            metricDetailRow(
+                icon: "waveform.path",
+                label: "Rhythm",
+                value: String(format: "%.0f%%", animRhythm < 0 ? 68.0 : animRhythm),
+                badge: rhythmBadge,
+                color: rhythmColor,
+                note: "pacing consistency"
+            )
+            metricDetailRow(
+                icon: "waveform.and.mic",
+                label: "Delivery Style",
+                value: spontaneityLabel,
+                badge: spontaneityBadge,
+                color: spontaneityColor,
+                note: "naturalness vs scripted"
+            )
+        }
+    }
+    
+    private func metricDetailRow(icon: String, label: String, value: String,
+                                  badge: String, color: Color, note: String) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.caption)
+                .foregroundStyle(color)
+                .frame(width: 20)
+            
+            VStack(alignment: .leading, spacing: 1) {
+                Text(label)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.primary)
+                Text(note)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            
+            Spacer()
+            
+            HStack(spacing: 6) {
+                Text(value)
+                    .font(.subheadline.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                StatBadge(text: badge, color: color)
+            }
+        }
+    }
+    
+    // MARK: - No Speech Card
+    private var noSpeechCard: some View {
+        VStack(spacing: 20) {
+            // Icon
+            ZStack {
+                Circle()
+                    .fill(Color.white.opacity(0.06))
+                    .frame(width: 80, height: 80)
+                Image(systemName: "mic.slash.fill")
+                    .font(.system(size: 32, weight: .light))
+                    .foregroundStyle(Color.white.opacity(0.35))
+                    .symbolRenderingMode(.hierarchical)
+            }
+            
+            VStack(spacing: 8) {
+                Text("No Speech Detected")
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundStyle(.white)
+                Text("We couldn't pick up any clear speech this session. Make sure you're speaking toward the device at a normal conversation volume.")
+                    .font(.subheadline)
+                    .foregroundStyle(Color.white.opacity(0.45))
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(3)
+            }
+            
+            // Tips
+            VStack(spacing: 10) {
+                tipRow(icon: "mic.fill",        text: "Hold the device 30–50 cm from your face")
+                tipRow(icon: "speaker.wave.2",  text: "Speak at a normal conversation volume")
+                tipRow(icon: "clock",           text: "Aim for at least 20 seconds of speech")
+            }
+            .padding(14)
+            .background(Color.white.opacity(0.04))
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .padding(20)
+        .cadenceCard()
+    }
+    
+    private func tipRow(icon: String, text: String) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 13))
+                .foregroundStyle(Color.mint.opacity(0.7))
+                .frame(width: 20)
+            Text(text)
+                .font(.footnote)
+                .foregroundStyle(Color.white.opacity(0.5))
+            Spacer()
+        }
+    }
+    
+    // MARK: - Helpers
+    private var durationText: String {
+        let d = Int(session.duration)
+        return d < 60 ? "\(d)s" : "\(d/60)m \(d%60)s"
+    }
+    
+    private var fillerRateText: String {
+        let mins = max(0.5, session.duration / 60.0)
+        let rate = Double(session.finalFillers) / mins
+        return String(format: "%.1f per minute", rate)
+    }
+    
+    private var pacingBadge: String {
+        // Short sessions (<25s) don't have reliable WPM — warn instead of misleading
+        if session.duration < 25 && session.finalWPM > 0 {
+            return "Short sample"
+        }
+        switch session.finalWPM {
+        case 130...150: return "Ideal"
+        case 115..<130, 151...165: return "Good"
+        case 95..<115,  166...185: return "Slightly off"
+        case 60..<95,   186...220: return "Needs work"
+        case 0: return "No speech"
+        default: return session.finalWPM > 220 ? "Too fast" : "Too slow"
+        }
+    }
+    private var pacingColor: Color {
+        if session.duration < 25 && session.finalWPM > 0 {
+            return Color.cadenceNeutral
+        }
+        switch session.finalWPM {
+        case 130...150: return Color.cadenceGood
+        case 115..<130, 151...165: return Color.cadenceGood.opacity(0.8)
+        case 95..<115,  166...185: return Color.cadenceNeutral
+        case 0: return Color.white.opacity(0.3)
+        default: return Color.cadenceWarn
+        }
+    }
+    private var fillerBadge: String {
+        let mins = max(0.5, session.duration / 60.0)
+        let rate = Double(session.finalFillers) / mins
+        switch rate {
+        case 0:    return "Flawless"
+        case ..<1: return "Excellent"
+        case ..<2: return "Good"
+        case ..<4: return "Noticeable"
+        default:   return "Too many"
+        }
+    }
+    private var fillerColor: Color {
+        let mins = max(0.5, session.duration / 60.0)
+        let rate = Double(session.finalFillers) / mins
+        switch rate {
+        case 0..<1: return Color.cadenceGood
+        case 1..<2: return Color.cadenceGood.opacity(0.8)
+        case 2..<4: return Color.cadenceNeutral
+        default:    return Color.cadenceBad
+        }
+    }
+    private var eyeBadge: String {
+        switch session.eyeContactPercentage {
+        case 80...100: return "Excellent"
+        case 60..<80:  return "Good"
+        case 40..<60:  return "Acceptable"
+        default:       return "Too low"
+        }
+    }
+    private var eyeColor: Color {
+        switch session.eyeContactPercentage {
+        case 75...100: return Color.cadenceGood
+        case 50..<75:  return Color.cadenceNeutral
+        default:       return Color.cadenceWarn
+        }
+    }
+    private var rhythmBadge: String {
+        let r = session.finalRhythmStability < 0 ? 68.0 : session.finalRhythmStability
+        switch r {
+        case 85...100: return "Consistent"
+        case 70..<85:  return "Steady"
+        case 55..<70:  return "Decent"
+        case 40..<55:  return "Uneven"
+        default:       return "Choppy"
+        }
+    }
+    private var rhythmColor: Color {
+        let r = session.finalRhythmStability < 0 ? 68.0 : session.finalRhythmStability
+        switch r {
+        case 75...100: return Color.cadenceGood
+        case 50..<75:  return Color.cadenceNeutral
+        default:       return Color.cadenceWarn
+        }
+    }
+    
+    // MARK: - Spontaneity helpers
+    private var spontaneityLabel: String {
+        switch session.finalSpontaneityScore {
+        case 70...100: return "Natural"
+        case 40..<70:  return "Mixed"
+        default:       return "Scripted"
+        }
+    }
+    private var spontaneityBadge: String {
+        switch session.finalSpontaneityScore {
+        case 70...100: return "Authentic delivery"
+        case 40..<70:  return "Some variation"
+        default:       return "Try to vary pace"
+        }
+    }
+    private var spontaneityColor: Color {
+        switch session.finalSpontaneityScore {
+        case 70...100: return Color.cadenceGood
+        case 40..<70:  return Color.cadenceNeutral
+        default:       return Color.cadenceWarn
+        }
+    }
+}
+
+// MARK: - Compatibility aliases (kept for any external references)
+typealias MetricListRow = SummaryMetricRowCompat
+
+struct SummaryMetricRowCompat: View {
+    let symbol: String; let color: Color; let label: String; let value: String; let badge: String
+    var body: some View { EmptyView() }
+}
+
+struct SpeechDNATimeline: View {
+    let events: [FlowEvent]; let duration: TimeInterval
+    var body: some View { EmptyView() }
+}
+
+private extension View {
+    func staggerSummary(_ appeared: Bool, delay: Double) -> some View {
+        self.opacity(appeared ? 1 : 0).offset(y: appeared ? 0 : 14)
+            .animation(.spring(response: 0.5, dampingFraction: 0.82).delay(delay), value: appeared)
+    }
+}

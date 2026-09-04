@@ -26,9 +26,9 @@ struct NativeCoachBanner: View {
         }
         .padding(14)
         .background(Color.cadenceCard)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: CadenceLayout.cardCornerRadius, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: CadenceLayout.cardCornerRadius, style: .continuous)
                 .stroke(tip.color.opacity(0.3), lineWidth: 1)
         )
     }
@@ -115,9 +115,9 @@ struct NativeMirrorCard: View {
                     .scaleEffect(x: -1, y: 1)
                     .frame(maxWidth: .infinity)
                     .frame(height: 200 * Device.scale)
-                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: CadenceLayout.cardCornerRadius, style: .continuous))
             } else {
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                RoundedRectangle(cornerRadius: CadenceLayout.cardCornerRadius, style: .continuous)
                     .fill(Color.cadenceCard)
                     .frame(maxWidth: .infinity)
                     .frame(height: 200 * Device.scale)
@@ -134,9 +134,9 @@ struct NativeMirrorCard: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: 200 * Device.scale)
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: CadenceLayout.cardCornerRadius, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
+            RoundedRectangle(cornerRadius: CadenceLayout.cardCornerRadius, style: .continuous)
                 .stroke(borderColor, lineWidth: borderWidth)
         )
         .shadow(color: borderColor.opacity(0.22), radius: 12, y: 4)
@@ -481,15 +481,8 @@ struct PracticeView: View {
 
             Button { viewModel.showEndSheet = true } label: {
                 Label("End Session", systemImage: "stop.fill")
-                    .font(.system(size: Device.isPad ? 22 : 17, weight: .semibold))
-                    .foregroundStyle(.black)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, Device.isPad ? 22 : 14)
-                    .background(LinearGradient.cadencePrimary)
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .shadow(color: Color.mint.opacity(0.25), radius: 10, y: 4)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(CadencePrimaryButtonStyle())
             .padding(.horizontal, 20)
             .padding(.bottom, 36)
         }
@@ -547,7 +540,6 @@ struct PracticeView: View {
     private var transcriptRow: some View {
         let text = coachEngine.transcribedText
         let isEmpty = text.isEmpty
-        let wordCount = text.split(separator: " ").count
 
         return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
@@ -558,11 +550,6 @@ struct PracticeView: View {
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(Color.white.opacity(0.25))
                 Spacer()
-                if !isEmpty {
-                    Text("\(wordCount) words")
-                        .font(.caption2)
-                        .foregroundStyle(Color.mint.opacity(0.5))
-                }
             }
 
             if isEmpty {
@@ -593,7 +580,7 @@ struct PracticeView: View {
         }
         .padding(.horizontal, 14).padding(.vertical, Device.isPad ? 18 : 12)
         .background(Color.cadenceCard)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: CadenceLayout.cardCornerRadius, style: .continuous))
         .frame(minHeight: Device.isPad ? 120 : 80)
     }
 

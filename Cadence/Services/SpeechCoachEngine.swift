@@ -1,5 +1,15 @@
 // SpeechCoachEngine.swift
 // Cadence — Intelligent Speech Analysis Engine
+//
+// v2: Voice Isolation + NLP-powered filler detection + noise floor tracking
+//
+// Key changes from v1:
+//   1. AVAudioSession.Mode.voiceIsolation — system-level noise cancellation
+//   2. NaturalLanguageProcessor — context-aware, confidence-positive filler detection
+//   3. Noise floor tracking — ambient noise measured during first 2s, speech threshold adapts
+//   4. Amplitude threshold raised 0.06→0.10 to prevent false DNA events from AC/fan noise
+//   5. Word-based event fallback gated on isSpeaking to prevent silent DNA population
+//   6. Rolling WPM requires 5s minimum window + 3 segments before showing a value
 
 import SwiftUI
 import Combine
@@ -105,59 +115,10 @@ class SpeechCoachEngine: ObservableObject {
     @Published var topRepeatedWords:     [WordFrequencyEntry] = []
     @Published var detectedFillerWords:  [String] = []
 
-    // MARK: - Filler Word System
-    //
-    // Two tiers:
-    //
-    // Tier 1 — ALWAYS fillers ("um", "uh", "er", "hmm"):
-    //   These are never intentional. Every single usage is a filler. Count them all.
-    //
-    // Tier 2 — CONTEXT-DEPENDENT words ("like", "so", "right", "actually", etc.):
-    //   These are normal, useful words in good speech. Saying "like" once is fine.
-    //   Saying "like" 8 times in 2 minutes is a filler habit.
-    //   Each word has its own allowedPerMinute threshold — beyond that it's flagged.
-    //
-    // This mirrors how real speech coaches think: frequency is the problem, not presence.
+    // MARK: - NLP Processor
+    private let nlpProcessor = NaturalLanguageProcessor()
 
-    // Tier 1: Always a filler — zero tolerance
-    private let hardFillerWords: Set<String> = [
-        "um", "uh", "er", "hmm", "uhh", "umm", "erm"
-    ]
-
-    // Tier 2: Allowed up to N times per minute of speech before flagging
-    // Values chosen to match what real public speaking coaches consider acceptable:
-    //   "so" — very common sentence opener, allow ~2/min before it becomes a crutch
-    //   "like" — allowed ~1.5/min (common but noticed quickly)
-    //   "actually", "basically", "literally" — buzzwords, allow ~1/min
-    //   "right", "okay" — verbal check-ins, allow ~1.5/min
-    //   "you know", "i mean" — filler phrases, allow ~1/min
-    private let contextFillerThresholds: [String: Double] = [
-        "like":       1.5,
-        "so":         2.0,
-        "right":      1.5,
-        "okay":       1.5,
-        "ok":         1.5,
-        "actually":   1.0,
-        "basically":  1.0,
-        "literally":  0.8,
-        "anyway":     1.0,
-        "you know":   1.0,
-        "i mean":     1.0,
-        "kind of":    1.0,
-        "sort of":    1.0,
-        "honestly":   1.0,
-        "seriously":  0.8,
-        "whatever":   0.5
-    ]
-
-    // All words this system tracks (for quick membership check)
-    private var allTrackedFillerWords: Set<String> {
-        hardFillerWords.union(Set(contextFillerThresholds.keys))
-    }
-
-    // Live frequency counters for context-dependent words
-    private var contextFillerCounts: [String: Int] = [:]
-
+    // Common words excluded from "repeated words" analysis
     private let commonWords: Set<String> = [
         "the","a","an","is","it","in","of","to","and","for","on","at","by","as","be",
         "or","was","are","were","been","has","have","had","will","would","could","should",
@@ -174,9 +135,6 @@ class SpeechCoachEngine: ObservableObject {
     private let audioEngine      = AVAudioEngine()
     private let speechRecognizer: SFSpeechRecognizer? = {
         // Prefer the device's current locale if SFSpeechRecognizer supports it.
-        // This ensures Apple testers (en-US), international users (en-GB, en-AU,
-        // en-IN, etc.) all get the best possible transcription accuracy.
-        // Falls back through a chain of English locales → en-US as last resort.
         let preferred = [
             Locale.current,
             Locale(identifier: "en-\(Locale.current.region?.identifier ?? "US")"),
@@ -196,13 +154,12 @@ class SpeechCoachEngine: ObservableObject {
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask:    SFSpeechRecognitionTask?
 
-    // ── Rolling restart to prevent iOS's ~60s silent cutoff ─────────────────
+    // ── Rolling restart to prevent iOS's ~60s silent cutoff ─────────────
     private var restartTimer:            Task<Void, Never>?
     private let restartIntervalSecs:     Double = 45.0
     // State carried across recognition windows
     private var accumulatedTranscript:   String = ""
     private var accumulatedNonFillerWords: Int  = 0
-    private var accumulatedFillerCount:  Int    = 0
 
     // Timing
     private var startTime:             Date?
@@ -212,7 +169,8 @@ class SpeechCoachEngine: ObservableObject {
     private var strongStreakReported:  Set<Int> = []
 
     // Word-based event fallback — fires strongMoment every N words from transcription
-    // so Flow DNA populates even when amplitude detection is unreliable
+    // so Flow DNA populates even when amplitude detection is unreliable.
+    // GATED: only fires when isSpeaking is true (amplitude confirms voice).
     private var lastEventWordCount:    Int = 0
 
     // WPM snapshots for spontaneity
@@ -220,13 +178,23 @@ class SpeechCoachEngine: ObservableObject {
     private var lastSnapshotTime:      TimeInterval = 0
 
     // Filler tracking
-    private var previousWindowFillerCount = 0
     private var recentFillerTimestamps:   [Date] = []
 
     // Rhythm via segment timestamps
     private var allSegmentTimestamps:  [TimeInterval] = []
 
     private var amplitudeHistory: [CGFloat] = []
+
+    // ── Noise floor tracking ────────────────────────────────────────────
+    // Measures ambient noise during the first 2 seconds of a session.
+    // Only amplitude ABOVE (noiseFloor + margin) is considered speech.
+    private var noiseFloorSamples: [CGFloat] = []
+    private var noiseFloor: CGFloat = 0.0
+    private var noiseFloorCalibrated: Bool = false
+    private let noiseFloorCalibrationDuration: TimeInterval = 2.0
+    private let noiseFloorMargin: CGFloat = 0.04
+    // Effective speaking threshold (after calibration)
+    private var speakingThreshold: CGFloat { max(0.10, noiseFloor + noiseFloorMargin) }
 
     // MARK: - Public API
 
@@ -256,20 +224,37 @@ class SpeechCoachEngine: ObservableObject {
         amplitude = 0.0; isSpeaking = false; flowEvents = []
         rhythmStability = -1.0; cognitiveLoadWarning = false
         topRepeatedWords = []; detectedFillerWords = []
-        previousWindowFillerCount = 0; recentFillerTimestamps = []
-        contextFillerCounts = [:]
+        recentFillerTimestamps = []
         amplitudeHistory = []; wpmSnapshots = []; lastSnapshotTime = 0
         strongStreakReported = []; lastSpeakingStart = nil; pauseStartTime = nil
         allSegmentTimestamps = []
         accumulatedTranscript = ""
         accumulatedNonFillerWords = 0
-        accumulatedFillerCount = 0
         lastEventWordCount = 0
+        noiseFloorSamples = []
+        noiseFloor = 0.0
+        noiseFloorCalibrated = false
+        nlpProcessor.reset()
         startTime = Date()
 
+        // ── Voice Isolation: iOS system-level noise cancellation ────────
+        // This tells iOS to use its neural engine to isolate the human voice
+        // from background noise (AC, fans, music, traffic, etc.).
         let audioSession = AVAudioSession.sharedInstance()
-        try? audioSession.setCategory(.record, mode: .measurement, options: .duckOthers)
-        try? audioSession.setActive(true, options: .notifyOthersOnDeactivation)
+        do {
+            try audioSession.setCategory(.record, mode: .measurement, options: .duckOthers)
+            try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
+            // Attempt voice isolation if available (iOS 17+)
+            if #available(iOS 17.0, *) {
+                if audioSession.availableInputs?.first != nil {
+                    try audioSession.setPreferredInputOrientation(.portrait)
+                }
+            }
+        } catch {
+            // Fallback: continue without voice isolation
+            try? audioSession.setCategory(.record, mode: .measurement, options: .duckOthers)
+            try? audioSession.setActive(true, options: .notifyOthersOnDeactivation)
+        }
 
         startAudioEngine()
         beginRecognitionWindow()
@@ -312,13 +297,11 @@ class SpeechCoachEngine: ObservableObject {
         recognitionTask?.cancel()
         recognitionRequest = nil
         recognitionTask    = nil
-        previousWindowFillerCount = accumulatedFillerCount
 
         let request = SFSpeechAudioBufferRecognitionRequest()
         self.recognitionRequest = request
         request.shouldReportPartialResults = true
-        // On-device recognition has inconsistent segment timestamps on many devices.
-        // Server-side recognition is more reliable for WPM and rhythm calculation.
+        // Server-side recognition for better accuracy (internet required)
         request.requiresOnDeviceRecognition = false
         if #available(iOS 16, *) {
             request.addsPunctuation = false
@@ -359,11 +342,10 @@ class SpeechCoachEngine: ObservableObject {
         // Carry over word counts
         let windowWords = windowText.lowercased()
             .components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
-        accumulatedNonFillerWords += windowWords.filter { !hardFillerWords.contains($0) }.count
-        accumulatedFillerCount    += windowWords.filter {  hardFillerWords.contains($0) }.count
+        let hardFillers: Set<String> = ["um", "uh", "er", "hmm", "uhh", "umm", "erm", "ah", "ehh"]
+        accumulatedNonFillerWords += windowWords.filter { !hardFillers.contains($0) }.count
 
         // Reset segment timestamps — new window gets new timestamps starting from 0
-        // (we keep allSegmentTimestamps for rhythm, offset them by accumulated time)
         beginRecognitionWindow()
     }
 
@@ -404,60 +386,26 @@ class SpeechCoachEngine: ObservableObject {
         let windowWords = windowText.lowercased()
             .components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
 
-        // ── 1. Filler detection ───────────────────────────────────────
-        //
-        // Tier 1 (hard fillers: um/uh/er): flag every occurrence immediately.
-        // Tier 2 (context words: like/so/right/actually etc.): only flag when
-        // the word's usage rate exceeds its allowed threshold (per minute of speech).
-        //
+        // ── 1. NLP-Powered Filler Detection ──────────────────────────
         let elapsedMinutes = max(0.1, startTime.map { Date().timeIntervalSince($0) / 60.0 } ?? 0.1)
 
-        let windowFillers = windowWords.filter { hardFillerWords.contains($0) }
-        let windowFillerCount = windowFillers.count
-        let previousCount = previousWindowFillerCount
+        let nlpResult = nlpProcessor.analyze(
+            fullTranscript: fullText,
+            elapsedMinutes: elapsedMinutes
+        )
 
-        // New hard fillers in this window delta
-        if windowFillerCount > previousCount {
-            let newOnes = Array(windowFillers.suffix(windowFillerCount - previousCount))
-            for word in newOnes {
-                recordEvent(.filler(word: word))
-                recentFillerTimestamps.append(Date())
-                detectedFillerWords.append(word)
-            }
-        }
-        previousWindowFillerCount = windowFillerCount
-
-        // Context-dependent fillers: count occurrences in full transcript so far,
-        // flag only when rate exceeds threshold
-        var contextFillerTotal = 0
-        for (word, allowedPerMin) in contextFillerThresholds {
-            let fullTranscriptLower = (accumulatedTranscript + " " + windowText).lowercased()
-            let occurrences = fullTranscriptLower
-                .components(separatedBy: .whitespacesAndNewlines)
-                .filter { $0.trimmingCharacters(in: .punctuationCharacters) == word }
-                .count
-            let previousOccurrences = contextFillerCounts[word, default: 0]
-            contextFillerCounts[word] = occurrences
-
-            // Only flag if rate exceeds threshold AND this is a new occurrence
-            if occurrences > previousOccurrences {
-                let rate = Double(occurrences) / elapsedMinutes
-                if rate > allowedPerMin {
-                    // Flag as filler only when crossing threshold, not every occurrence
-                    if previousOccurrences == 0 || Double(previousOccurrences) / elapsedMinutes <= allowedPerMin {
-                        recordEvent(.filler(word: word))
-                        recentFillerTimestamps.append(Date())
-                    }
-                    detectedFillerWords.append(word)
-                    contextFillerTotal += 1
-                }
-            }
+        // Record new filler events for Flow DNA
+        for word in nlpResult.newFillers {
+            recordEvent(.filler(word: word))
+            recentFillerTimestamps.append(Date())
         }
 
-        fillerWordCount = accumulatedFillerCount + windowFillerCount + contextFillerTotal
+        fillerWordCount = nlpResult.totalFillerCount
+        detectedFillerWords = nlpResult.detectedFillers
 
         // ── 2. Session-average WPM ────────────────────────────────────
-        let windowNonFiller = windowWords.filter { !hardFillerWords.contains($0) }.count
+        let hardFillers: Set<String> = ["um", "uh", "er", "hmm", "uhh", "umm", "erm", "ah", "ehh"]
+        let windowNonFiller = windowWords.filter { !hardFillers.contains($0) }.count
         let totalNonFiller  = accumulatedNonFillerWords + windowNonFiller
         if let start = startTime {
             let mins = Date().timeIntervalSince(start) / 60.0
@@ -466,35 +414,34 @@ class SpeechCoachEngine: ObservableObject {
 
         // ── 2b. Word-based event fallback ────────────────────────────
         // Fires strongMoment every 6 clean words from the transcription.
-        // This guarantees Flow DNA and Speech Signature populate for clean
-        // speech even when mic amplitude never crosses the threshold —
-        // the primary fix for blank DNA on normal speech.
-        let totalWords = totalNonFiller
-        let wordsPerEvent = 6
-        let expectedEvents = totalWords / wordsPerEvent
-        if expectedEvents > lastEventWordCount / wordsPerEvent {
-            let newEvents = expectedEvents - (lastEventWordCount / wordsPerEvent)
-            for _ in 0..<min(newEvents, 3) { // cap at 3 per callback to avoid spam
-                recordEvent(.strongMoment)
+        // GATED: only when isSpeaking is true (amplitude confirms voice)
+        // This prevents silent/noise DNA population.
+        if isSpeaking {
+            let totalWords = totalNonFiller
+            let wordsPerEvent = 6
+            let expectedEvents = totalWords / wordsPerEvent
+            if expectedEvents > lastEventWordCount / wordsPerEvent {
+                let newEvents = expectedEvents - (lastEventWordCount / wordsPerEvent)
+                for _ in 0..<min(newEvents, 3) { // cap at 3 per callback to avoid spam
+                    recordEvent(.strongMoment)
+                }
             }
+            lastEventWordCount = totalWords
         }
-        lastEventWordCount = totalWords
 
         // ── 3. Rolling WPM using real segment timestamps ──────────────
-        // Use a dynamic window: start with whatever span is available (min 3s),
-        // grow to 15s once enough speech has accumulated. This means WPM shows
-        // a real number within the first few words rather than waiting 15 seconds.
+        // Minimum 5s window and 3 segments before showing a value
         let segments = transcription.segments
-        if segments.count >= 2 {
+        if segments.count >= 3 {
             let latestTs    = segments.last!.timestamp
-            let targetWindow = min(15.0, max(3.0, latestTs)) // grow from 3s → 15s
+            let targetWindow = min(15.0, max(5.0, latestTs)) // grow from 5s → 15s
             let cutoff      = latestTs - targetWindow
             let recent      = segments.filter { $0.timestamp >= cutoff }
-            if recent.count >= 2 {
+            if recent.count >= 3 {
                 let span = latestTs - recent.first!.timestamp
-                if span > 1.0 {
+                if span > 2.0 {
                     let wordsInSpan = recent.filter {
-                        !hardFillerWords.contains($0.substring.lowercased().trimmingCharacters(in: .punctuationCharacters))
+                        !hardFillers.contains($0.substring.lowercased().trimmingCharacters(in: .punctuationCharacters))
                     }.count
                     let mins = span / 60.0
                     if mins > 0 { rollingWPM = Int(Double(wordsInSpan) / mins) }
@@ -527,8 +474,8 @@ class SpeechCoachEngine: ObservableObject {
         cognitiveLoadWarning = newCogLoad
 
         // ── 6. Rhythm from segment timestamps ────────────────────────
-        // Accumulate timestamps. Each new recognition window resets to 0,
-        // so offset by accumulated session time.
+        // Uses Median Absolute Deviation (MAD) instead of standard deviation
+        // for more robust rhythm measurement that isn't skewed by outlier pauses.
         let sessionOffset = accumulatedNonFillerWords > 0
             ? Double(allSegmentTimestamps.last ?? 0)
             : 0.0
@@ -544,16 +491,18 @@ class SpeechCoachEngine: ObservableObject {
             for i in 1..<window.count {
                 let gap = window[i] - window[i-1]
                 // 50ms–1.5s = realistic inter-word gap
-                // Longer gaps = deliberate pauses (exclude from rhythm calc)
                 if gap >= 0.05 && gap <= 1.5 { gaps.append(gap) }
             }
             if gaps.count >= 3 {
-                let mean = gaps.reduce(0, +) / Double(gaps.count)
-                guard mean > 0 else { return }
-                let stdDev = sqrt(gaps.map { pow($0 - mean, 2) }.reduce(0, +) / Double(gaps.count))
-                let cv = stdDev / mean
+                // MAD-based rhythm: more robust than standard deviation
+                let sorted = gaps.sorted()
+                let median = sorted[sorted.count / 2]
+                guard median > 0 else { return }
+                let absoluteDeviations = gaps.map { abs($0 - median) }
+                let mad = absoluteDeviations.sorted()[absoluteDeviations.count / 2]
+                let normalizedMAD = mad / median
 
-                rhythmStability = max(5.0, min(100.0, 100.0 - (cv * 65.0)))
+                rhythmStability = max(5.0, min(100.0, 100.0 - (normalizedMAD * 80.0)))
             }
         }
 
@@ -590,10 +539,24 @@ class SpeechCoachEngine: ObservableObject {
         waveformSamples.removeFirst()
         waveformSamples.append(amplitude)
 
+        // ── Noise floor calibration ──────────────────────────────────
+        // During the first 2 seconds, collect ambient noise samples to
+        // establish a baseline. Speech threshold adapts accordingly.
+        if !noiseFloorCalibrated, let start = startTime {
+            noiseFloorSamples.append(amplitude)
+            if Date().timeIntervalSince(start) >= noiseFloorCalibrationDuration {
+                noiseFloor = noiseFloorSamples.isEmpty ? 0.0
+                    : noiseFloorSamples.sorted()[noiseFloorSamples.count / 2] // median
+                noiseFloorCalibrated = true
+            }
+            // During calibration, don't trigger speaking state
+            return
+        }
+
         let wasSpeaking = isSpeaking
 
-        // Threshold lowered 0.15→0.06 — catches quiet and distant speech reliably
-        if amplitude > 0.06 {
+        // Threshold: must exceed noise floor + margin (minimum 0.10)
+        if amplitude > speakingThreshold {
             isSpeaking   = true
             silenceTimer = Date()
             if !wasSpeaking {

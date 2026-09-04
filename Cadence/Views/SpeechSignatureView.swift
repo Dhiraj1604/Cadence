@@ -235,3 +235,118 @@ struct CompactSpeechSignature: View {
         return path
     }
 }
+
+// MARK: - Session Timeline View
+// Replaces Speech Signature + Speech Journey with a simple, intuitive visualisation.
+// Divides the session into equal time slots. Each slot is coloured by the most
+// significant event that occurred in it. Anyone can read it instantly:
+//   Green = strong speaking · Orange = filler · Yellow = pause · Red = lost flow · Gray = quiet
+struct SessionTimelineView: View {
+    let events: [FlowEvent]
+    let duration: TimeInterval
+
+    // Number of slots adapts to session length for visual clarity
+    private var slotCount: Int {
+        let secs = Int(duration)
+        if secs <= 15 { return max(5, secs / 2) }
+        if secs <= 60 { return 15 }
+        if secs <= 120 { return 20 }
+        return 24
+    }
+
+    private var slotDuration: Double {
+        guard slotCount > 0 else { return 1 }
+        return duration / Double(slotCount)
+    }
+
+    /// Returns the priority colour for a time slot based on events within it.
+    /// Priority: flowBreak > filler > hesitation > strongMoment > no data
+    private func colorForSlot(_ index: Int) -> Color {
+        let start = Double(index) * slotDuration
+        let end = start + slotDuration
+        let slice = events.filter { $0.timestamp >= start && $0.timestamp < end }
+
+        if slice.contains(where: { if case .flowBreak = $0.type { return true }; return false }) {
+            return .red
+        }
+        if slice.contains(where: { if case .filler = $0.type { return true }; return false }) {
+            return .orange
+        }
+        if slice.contains(where: { if case .hesitation = $0.type { return true }; return false }) {
+            return .yellow
+        }
+        if slice.contains(where: { if case .strongMoment = $0.type { return true }; return false }) {
+            return .mint
+        }
+
+        // No explicit event — check if nearby events exist (speaker was talking cleanly)
+        let window = slotDuration * 1.5
+        let nearby = events.filter { $0.timestamp >= start - window && $0.timestamp < end + window }
+        if !nearby.isEmpty {
+            return .mint.opacity(0.5)
+        }
+
+        return Color.white.opacity(0.08) // quiet / no data
+    }
+
+    /// Time label for the axis (e.g. "0s", "30s", "1m")
+    private func timeLabel(_ seconds: Int) -> String {
+        if seconds < 60 { return "\(seconds)s" }
+        let m = seconds / 60
+        let s = seconds % 60
+        return s == 0 ? "\(m)m" : "\(m):\(String(format: "%02d", s))"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Timeline bars
+            GeometryReader { geo in
+                let totalGap = CGFloat(max(0, slotCount - 1)) * 2.0
+                let barW = max(4, (geo.size.width - totalGap) / CGFloat(slotCount))
+
+                HStack(spacing: 2) {
+                    ForEach(0..<slotCount, id: \.self) { i in
+                        let color = colorForSlot(i)
+                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                            .fill(color)
+                            .frame(width: barW, height: 32)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(height: 32)
+
+            // Time axis
+            HStack {
+                Text(timeLabel(0))
+                Spacer()
+                if duration >= 20 {
+                    Text(timeLabel(Int(duration / 2)))
+                    Spacer()
+                }
+                Text(timeLabel(Int(duration)))
+            }
+            .font(.caption2.monospacedDigit())
+            .foregroundStyle(Color.white.opacity(0.3))
+
+            // Legend
+            HStack(spacing: 16) {
+                timelineLegend(.mint, "Strong")
+                timelineLegend(.orange, "Filler")
+                timelineLegend(.yellow, "Pause")
+                timelineLegend(.red, "Lost Flow")
+            }
+        }
+    }
+
+    private func timelineLegend(_ color: Color, _ label: String) -> some View {
+        HStack(spacing: 5) {
+            RoundedRectangle(cornerRadius: 2, style: .continuous)
+                .fill(color)
+                .frame(width: 10, height: 10)
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(Color.white.opacity(0.4))
+        }
+    }
+}
